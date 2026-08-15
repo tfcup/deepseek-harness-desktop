@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+@config "../../tailwind.config.js";
+
+@import "./components/scrollbar.css";
+
+/* 主题变量：默认深色，html[data-theme="light"] 切换到浅色 */
+:root {
+  --color-canvas: #0d0d0f;
+  --color-panel: #151518;
+  --color-panel-2: #1c1c21;
+  --color-panel-hover: #26262d;
+  --color-line: #2a2a31;
+  --color-line-strong: #3a3a44;
+  --color-ink: #e8e8ea;
+  --color-muted: #9a9aa3;
+  --color-accent: #4d6bfe;
+  --color-accent-2: #6e8bff;
+  --color-danger: #e5484d;
+  --color-ok: #46a758;
+  --color-log-bg: #0a0a0c;
+  --color-log-ink: #b8b8c0;
+}
+
+html[data-theme="light"] {
+  --color-canvas: #f5f6f8;
+  --color-panel: #ffffff;
+  --color-panel-2: #eef0f4;
+  --color-panel-hover: #e5e8ee;
+  --color-line: #e2e5ea;
+  --color-line-strong: #c9ced8;
+  --color-ink: #1b1d21;
+  --color-muted: #636a73;
+  --color-accent: #3b5bfe;
+  --color-accent-2: #5b76ff;
+  --color-danger: #d83a42;
+  --color-ok: #2f9e44;
+  --color-log-bg: #fafbfc;
+  --color-log-ink: #40454d;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+  }
+
+  body {
+    @apply overflow-hidden bg-canvas text-ink;
+    font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+    font-size: 14px;
+  }
+}
