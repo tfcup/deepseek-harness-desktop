@@ -25,7 +25,7 @@
 
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -103,6 +103,88 @@ function readFileSyncList(dir: string): string[] {
   );
 }
 
+/**
+ * 瘦身 node_modules：删除运行时永不加载的文件，减小 runtime zip / DMG 体积。
+ *
+ * 安全规则：
+ * - 删：源码映射（.map）、test/tests/__tests__/spec/examples/example/docs/.github
+ *   目录、README / LICENSE / CHANGELOG / CONTRIBUTING / SECURITY / CODE_OF_CONDUCT 文件；
+ * - 不删 src/：部分包是 src-based（如 koffi 的 index.js 直接 import ./src/koffi/index.js），
+ *   "有 lib/dist 即安全删 src"的启发式实测会误删运行时代码（Compatibility Gate 曾因此失败）；
+ * - 保留：package.json、lib/、dist/、src/、原生二进制、.bin、.pnpm（防御性）。
+ * 返回删除的源体积（KB）。
+ */
+function slimNodeModules(root: string): number {
+  let removedKb = 0;
+  const walk = (dir: string): void => {
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const p = join(dir, e.name);
+      try {
+        if (e.isDirectory()) {
+          if (e.name === ".bin" || e.name === ".pnpm" || e.name === ".git") continue;
+          if (existsSync(join(p, "package.json"))) {
+            // 包根清理（仅删确认不参与运行的文件/目录）
+            const removeDirs = ["test", "tests", "__tests__", "spec", "examples", "example", "docs", ".github"];
+            for (const d of removeDirs) {
+              const dp = join(p, d);
+              if (existsSync(dp) && statSync(dp).isDirectory()) {
+                removedKb += dirSizeKb(dp);
+                rmSync(dp, { recursive: true, force: true });
+              }
+            }
+            for (const f of readdirSync(p)) {
+              if (/^(README|LICENSE|CHANGELOG|CONTRIBUTING|SECURITY|CODE_OF_CONDUCT)/i.test(f)) {
+                const fp = join(p, f);
+                if (statSync(fp).isFile()) {
+                  removedKb += statSync(fp).size / 1024;
+                  rmSync(fp, { force: true });
+                }
+              }
+            }
+          }
+          walk(p); // 递归找嵌套 node_modules / .map
+        } else if (e.name.endsWith(".map")) {
+          removedKb += statSync(p).size / 1024;
+          rmSync(p, { force: true });
+        }
+      } catch {
+        /* 单个条目失败不阻断整体 */
+      }
+    }
+  };
+  walk(root);
+  return Math.round(removedKb / 1024);
+}
+
+function dirSizeKb(dir: string): number {
+  let total = 0;
+  const walk = (d: string): void => {
+    let entries;
+    try {
+      entries = readdirSync(d, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const p = join(d, e.name);
+      try {
+        if (e.isDirectory()) walk(p);
+        else total += statSync(p).size;
+      } catch {
+        /* ignore */
+      }
+    }
+  };
+  walk(dir);
+  return total / 1024;
+}
+
 function main(): void {
   const channel = arg("--channel", "dev");
   const noZip = process.argv.includes("--no-zip");
@@ -132,6 +214,10 @@ function main(): void {
   const nmDest = join(staging, "node_modules");
   cpSync(nmSrc, nmDest, { recursive: true });
   console.log(`[build] node_modules → ${nmDest}`);
+
+  // 1.5) 瘦身：删除运行时永不加载的文件（源映射/测试/文档/src-冗余）
+  const removedMb = slimNodeModules(nmDest);
+  console.log(`[build] slimmed node_modules: 移除约 ${removedMb} MB 非运行时文件`);
 
   // 2) 根 package.json（harness 包清单，桌面端 DSH_MANIFEST_RELATIVE=package.json）
   writeFileSync(

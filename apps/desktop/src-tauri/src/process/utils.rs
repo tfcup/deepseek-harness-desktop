@@ -1,5 +1,4 @@
 use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{SocketAddr, TcpStream};
 use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
@@ -30,20 +29,6 @@ pub async fn is_dsh_running() -> bool {
     };
 
     check_status.await.unwrap_or(false)
-}
-
-/// 检查指定端口是否被占用（通过尝试连接来判断）
-pub fn is_port_in_use(port: u16) -> bool {
-    // 尝试连接到端口，设置较短的超时时间（100ms）以快速检测
-    let addr: SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap_or_else(|_| {
-        // 如果解析失败，返回一个默认地址（虽然不太可能发生）
-        "127.0.0.1:0".parse().unwrap()
-    });
-
-    match TcpStream::connect_timeout(&addr, Duration::from_millis(100)) {
-        Ok(_) => true,   // 连接成功，端口被占用（有服务在监听）
-        Err(_) => false, // 连接失败或超时，端口未被占用
-    }
 }
 
 /// 在独立线程中读取子进程的输出，同时写入日志文件

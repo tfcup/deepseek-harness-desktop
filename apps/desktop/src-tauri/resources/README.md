@@ -4,10 +4,10 @@ This directory is bundled into the installer as `resources/**`.
 
 At runtime, the application seeds / downloads everything it needs into the OS
 user-data directory (the Tauri app-data dir for identifier
-`io.github.tfcup.deepseek-harness-desktop`, i.e.
-`~/Library/Application Support/io.github.tfcup.deepseek-harness-desktop/`):
+`deepseek-harness-desktop` (custom-named, not the bundle id), i.e.
+`~/Library/Application Support/deepseek-harness-desktop/`):
 
-- `node/` — the app-managed Node.js runtime（方案 B：基线随 DMG 内置，首启 seed；否则首启下载）
+- （§15 修订：Node 不内置、不下载——直接使用本机 Node，缺失即报错）
 - `runtime/versions/<v>/` — versioned Harness Runtime（基线随 DMG 内置或经 Runtime 更新安装）
 - `data/dsh/` — the isolated `$DSH_HOME` used by the running `dsh` process
 - `logs/` — application and `dsh` service logs

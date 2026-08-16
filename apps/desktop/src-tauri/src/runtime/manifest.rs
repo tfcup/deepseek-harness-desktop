@@ -29,7 +29,7 @@ pub struct RuntimeManifest {
     pub harness_version: String,
     /// Extension Pack 版本（Phase 3 起填充）
     pub extension_version: String,
-    /// App Managed Node 版本（如 `24.6.0`）
+    /// Node 版本（§15 修订：本机 Node 的实际版本，读取失败时回退支持基线）
     pub node_version: String,
     pub platform: String,
     pub arch: String,

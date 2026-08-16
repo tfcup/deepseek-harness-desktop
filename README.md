@@ -7,7 +7,7 @@
 <h1 align="center">DeepSeek Harness Desktop</h1>
 
 <p align="center">
-  <em>A one-click desktop app for <a href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a> — run the full agent harness locally without installing Node.js, pnpm, or Docker.</em>
+  <em>A one-click desktop app for <a href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a> — run the full agent harness locally with just Node.js installed.</em>
 </p>
 
 <p align="center">
@@ -56,9 +56,9 @@
 ### Requirements
 
 - macOS 11+ (Apple Silicon / arm64 only)
-- No developer tools, Node.js, Rust or pnpm required
+- Node.js v22.15+ / v23.8+ installed (v24+ OK) — no Rust, pnpm or Docker required
 
-The app always uses its **app-managed Node.js v22.22.0 LTS** runtime (installed to the app data directory), which satisfies the Harness requirement of **v22.15.0+ or v23.8.0+**. System Node.js / Homebrew / nvm are never used, so every user environment is identical.
+The app **uses the Node.js installed on your machine** (found via PATH, Homebrew or nvm) and requires **v22.15+ / v23.8+ (v24+ OK)**. If Node.js is missing or incompatible, the app shows a clear error and does not download or bundle its own runtime.
 
 ## Development
 
@@ -121,13 +121,13 @@ pnpm icons
 
 ## Data Directory
 
-The data directory follows the Tauri bundle identifier (`io.github.tfcup.deepseek-harness-desktop`):
+The data directory is a custom-named folder under Application Support (like Chrome/VS Code, not the bundle id):
 
-- macOS: `~/Library/Application Support/io.github.tfcup.deepseek-harness-desktop/`
+- macOS: `~/Library/Application Support/deepseek-harness-desktop/`
 
 It contains:
 
-- `node/` — app-managed Node.js runtime
+
 - `runtime/versions/<v>/` — versioned Harness Runtime
 - `data/dsh/` — Harness user data (`$DSH_HOME`: profiles, sessions, settings)
 - `logs/` — app and dsh service logs

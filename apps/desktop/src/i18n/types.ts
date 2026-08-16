@@ -18,6 +18,7 @@ export interface Translations {
   status: {
     checking: string;
     installing: string;
+    seeding: string;
     updating: string;
     preparing_engine: string;
     downloading_harness: string;
@@ -79,11 +80,6 @@ export interface Translations {
     running: string;
     stopped: string;
     settings: string;
-    minimize: string;
-    maximize: string;
-    restore: string;
-    close: string;
-    drag_window: string;
     waiting_logs: string;
     install_log: string;
   };

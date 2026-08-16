@@ -1,11 +1,11 @@
 use crate::config;
 use crate::service::download::{self, Installable};
 use crate::process;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_opener::OpenerExt;
 
-/// 一键安装依赖（Node.js 运行时 + 打包的 Harness 发行版）
+/// 一键安装依赖（打包的 Harness 发行版；Node.js 使用本机安装，缺失/不兼容报错）
 ///
 /// 启动逻辑由前端显式调用 `launch_harness` 完成，避免重复拉起进程。
 #[tauri::command]
@@ -17,7 +17,7 @@ pub async fn install_dependencies(app_handle: AppHandle) -> Result<(), String> {
 
     // 以实际安装状态为准：本地安装与 GitHub 最新 release 的 commit hash
     // 不一致时，说明上游 pkg 有更新/修复，需要自动重新下载。
-    let node_ok = download::Nodejs.check_installed(&app_handle);
+    let node_ok = config::is_runtime_compatible(&app_handle);
     let dsh_files_ok = download::Dsh.check_installed(&app_handle);
     let dsh_latest = download::fetch_latest_dsh_pkg_commit().await;
 
@@ -171,6 +171,18 @@ pub fn ensure_runtime_extensions(app_handle: AppHandle) -> Result<Vec<String>, S
     }
 }
 
+/// 是否存在方案 B 基线资源（bundle 内置 Node/Runtime）
+#[tauri::command]
+pub fn has_baseline_resources(app_handle: AppHandle) -> bool {
+    crate::runtime::manager::has_baseline_resources(&app_handle)
+}
+
+/// 等待后台基线 seed 完成（前端据此跳过联网安装；超时/无基线返回 false）
+#[tauri::command]
+pub async fn wait_for_baseline_seed(app_handle: AppHandle) -> bool {
+    crate::runtime::manager::wait_for_baseline_seed(&app_handle).await
+}
+
 /// 当前桌面端配置
 #[tauri::command]
 pub async fn get_app_config(app_handle: AppHandle) -> Result<config::Setting, String> {
@@ -221,10 +233,7 @@ pub async fn copy_service_url(app_handle: AppHandle) -> Result<(), String> {
 /// 在系统文件管理器中打开数据目录
 #[tauri::command]
 pub async fn reveal_data_dir(app_handle: AppHandle) -> Result<(), String> {
-    let app_data_dir = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?;
+    let app_data_dir = config::get_base_dir(&app_handle);
 
     std::process::Command::new("open")
         .arg(&app_data_dir)

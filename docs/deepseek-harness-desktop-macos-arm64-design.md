@@ -781,46 +781,39 @@ Harness Runtime 更新失败。
 
 ---
 
-# 15. Node Runtime 策略
+# 15. Node Runtime 策略（修订版）
 
-建议不要使用用户电脑上的系统 Node.js。
+> 2026-08 修订：**直接使用用户本机安装的 Node.js**；不下载、不内置；
+> 本机缺失或不兼容时**直接报错**（不联网下载、不静默跳过）。
 
-不要依赖：
-
-```text
-/usr/local/bin/node
-/opt/homebrew/bin/node
-~/.nvm/*
-```
-
-正式发行时建议：
-
-> **Always use App Managed Node Runtime**
-
-例如：
+查找范围：
 
 ```text
-~/Library/Application Support/<AppName>/node/
+PATH（含 nvm 等） → /opt/homebrew/bin → /usr/local/bin
 ```
 
-原因：
+版本要求：v22.15+ / v23.8+（v24+ 亦可），不满足或缺失时给出明确报错：
 
-- 环境完全可控。
-- 不受 Homebrew / nvm 影响。
-- 不需要用户理解 Node。
-- Bug 更容易复现。
-- Desktop + Runtime 可以固定兼容矩阵。
+```text
+未找到 Node.js：请先安装 Node.js v22.15+ / v23.8+（https://nodejs.org）
+Node.js 版本不兼容：当前 X.Y.Z，需要 v22.15+ / v23.8+
+```
+
+说明：
+
+- 用户需自行安装 Node.js（这是分发的前置要求，README 明示）；
+- 不做"本机没有就联网下载"的兜底——找不到直接报错，保持简单与可预期；
+- 早期版本曾内置 Managed Node（本节原案），后按分发诉求改为本机 Node；
+- Runtime Manifest 的 `nodeVersion` 记录**本机实际 Node 版本**（读取失败时回退支持基线 v22.22.0）。
 
 例如：
 
 ```text
 Desktop 1.2.3
-Node 24.6
+Node（本机）24.6
 Harness rc.12
 Extension Pack 1.4.2
 ```
-
-所有用户环境一致。
 
 ---
 
@@ -1001,14 +994,17 @@ DeepSeekDesktop_1.2.3_arm64.dmg
 直接使用
 ```
 
-用户不应该需要：
+用户不应该需要（§15 修订后，唯一例外：**需本机已安装 Node.js v22.15+ / v23.8+**）：
 
 ```bash
-brew install node
+# 不需要
 npm install
 pnpm install
 cargo install
 xattr -dr ...
+
+# 需要（前置要求，缺失启动即报错）
+brew install node   # 或官网安装 Node.js v22.15+ / v23.8+
 ```
 
 ---
@@ -1114,14 +1110,14 @@ DMG
 ```text
 DMG
 ├── Desktop App
-├── Managed Node
 └── Baseline Harness Runtime
+（Node 不内置——使用用户本机 Node，§15 修订版）
 ```
 
 安装后：
 
 ```text
-立即可以启动
+立即可以启动（需本机已装 Node.js，缺失会提示报错）
         ↓
 后台检查新的 stable runtime
         ↓
@@ -1130,15 +1126,16 @@ DMG
 
 优点：
 
-- 开箱即用。
-- 离线情况下也能第一次启动。
+- 开箱即用（Harness Runtime 离线内置）。
+- 离线情况下也能第一次启动（Node 已在本机）。
 - 更符合普通 macOS App 的体验。
 
 代价：
 
-- DMG 体积更大。
+- DMG 体积较大（含 Baseline Runtime ~60MB）。
+- 用户需自备 Node.js（v22.15+ / v23.8+）。
 
-对于“发给别人直接用”的需求，推荐方案 B。
+对于“发给别人直接用”的需求，推荐方案 B（并明示 Node.js 前置要求）。
 
 ---
 
@@ -1152,13 +1149,14 @@ DMG
 ~/Library/Application Support/<AppName>/
 │
 ├── runtime/
-├── node/
 ├── config/
 ├── workspace/
 ├── sessions/
 ├── cache/
 └── logs/
 ```
+
+> （§15 修订：不再由 App 管理 `node/` 目录——Node 直接使用本机安装。）
 
 Runtime 更新时只替换：
 
@@ -1380,11 +1378,13 @@ GitHub Actions
 系统 Node 可用就复用
 ```
 
-改为：
+改为（2026-08 修订）：
 
 ```text
-始终使用 Managed Node
+直接使用本机 Node（PATH / Homebrew / nvm 均可），缺失或不兼容直接报错
 ```
+
+> 不做"本机没有就联网下载"，也不内置 Managed Node——详见 §15 修订版。
 
 ---
 

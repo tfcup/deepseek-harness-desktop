@@ -43,13 +43,7 @@ jobs:
       - name: 安装依赖
         run: pnpm install --frozen-lockfile
 
-      # ---------- 方案 B：Baseline 资源（Node + Baseline Runtime） ----------
-      - name: 准备基线 Node（darwin-arm64 v22.22.0）
-        run: |
-          mkdir -p apps/desktop/src-tauri/resources/baseline
-          curl -fsSL -o apps/desktop/src-tauri/resources/baseline/node.tar.gz \
-            https://nodejs.org/dist/v22.22.0/node-v22.22.0-darwin-arm64.tar.gz
-
+      # ---------- 方案 B：Baseline Runtime（§15 修订：Node 不内置，使用本机 Node） ----------
       - name: 准备 Baseline Runtime（固定 dsh + Extension Pack → zip）
         run: |
           # dsh 基座装到 RUNNER_TEMP（仓库外）。用 npm 而非 pnpm：

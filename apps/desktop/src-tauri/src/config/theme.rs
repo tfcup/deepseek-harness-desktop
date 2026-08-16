@@ -13,7 +13,9 @@ pub enum DshTheme {
     System,
 }
 
-const DEFAULT_THEME: DshTheme = DshTheme::Dark;
+/// 默认主题：跟随系统（与官方 dsh ThemeRuntime 的 DEFAULT_PREFERENCE="system" 对齐，
+/// 避免 settings.yaml 缺失时壳/标题栏默认深色、而 iframe 内 dsh UI 默认跟随系统的割裂）
+const DEFAULT_THEME: DshTheme = DshTheme::System;
 
 static LAST_EMITTED: OnceLock<Mutex<Option<DshTheme>>> = OnceLock::new();
 

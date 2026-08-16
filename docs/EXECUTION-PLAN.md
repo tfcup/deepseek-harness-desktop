@@ -25,7 +25,7 @@
 |---|---|
 | Runtime 与 Desktop 版本解耦 | §6 / §7 Runtime Manifest |
 | 多版本管理 / 原子切换 / 回滚 | §13 / §14 |
-| Managed Node 版本受 manifest 管理 | §15 |
+| Node 策略（使用本机 Node，缺失即报错，§15 修订版） | §15 |
 | Extension 四件套（adapter/theme/ui/tools） | §5 / §16 / §17 |
 | Runtime 自动构建 CI + Compatibility Gate | §8 / §10 / §11 / §12 |
 | 发布通道 dev / beta / stable | §9 / §26 |
@@ -63,7 +63,7 @@
    - `tauri.conf.json` 的 `bundle.targets` 限定 `dmg`，去掉 ico/Windows 产物。
 2. **数据目录规范对齐设计文档 §24**
    - `<app-data>/runtime/versions/<runtimeVersion>/`（多版本共存）
-   - `<app-data>/node/`（Managed Node，从 `runtime/` 迁出独立）
+   - （§15 修订：Node 不内置、不下载，直接使用本机 Node）
    - `data/`、`logs/`、`config/` 保持现状。
 3. **版本语义解耦（本地版 Manifest 先行）**
    - 定义 `RuntimeManifest` 结构（§7 字段全集：schemaVersion/channel/runtimeVersion/harnessVersion/extensionVersion/nodeVersion/platform/arch/url/sha256/minimumDesktopVersion）；
@@ -104,7 +104,7 @@
 
 ---
 
-### Phase 2 — Managed Node 版本管理（可与 Phase 1 并行，预计 0.5 周）
+### Phase 2 — Node 策略（本机 Node；原 Managed Node，已修订，预计 0.5 周）
 
 任务：
 
@@ -187,7 +187,7 @@
 任务：
 
 1. **签名与公证**：Developer ID Application 证书 → `codesign` → `notarytool` → `stapler`；
-2. **DMG 内容采用方案 B**（§23）：内置 Baseline Runtime（Desktop App + Managed Node + Baseline Harness Runtime），开箱即用、离线可首启，后台再检查新 stable runtime；
+2. **DMG 内容采用方案 B**（§23，§15 修订版）：内置 Baseline Runtime（Desktop App + Baseline Harness Runtime；Node 不内置，使用本机 Node，缺失即报错），离线可首启，后台再检查新 stable runtime；
 3. **产物命名**：`DeepSeekDesktop_<version>_arm64.dmg`；
 4. **GitHub Releases 发布流**：`git tag vX.Y.Z` → Actions 构建 → codesign → notarize → staple → DMG → 上传 Release；
 5. **网站/文档**：更新 `website/` 与 README，给出"下载 → 拖入 Applications → 直接使用"的用户路径。
@@ -228,7 +228,7 @@
 |---|---|---|---|
 | 0 | 基线收敛（平台裁剪/目录/版本解耦） | 0.5–1 周 | 无 |
 | 1 | Runtime Manager（下载/切换/回滚） | 1–2 周 | Phase 0 |
-| 2 | Managed Node 版本管理 | 0.5 周（可并行） | Phase 0 |
+| 2 | Node 策略（本机 Node，缺失报错） | 0.5 周（可并行） | Phase 0 |
 | 3 | Extension Layer（adapter/theme/ui/tools） | 2–4 周 | 官方 API 调研 |
 | 4 | Runtime CI + Compatibility Gate + Channels | 2–3 周 | Phase 1/2/3 |
 | 5 | Desktop 自动更新（双更新体系） | 1 周 | 签名能力 |
@@ -238,12 +238,13 @@
 
 - [x] Phase 0：结构/平台/数据目录/Manifest 草案
 - [x] Phase 1：Runtime Manager（版本化布局 + 安装/回滚 + 扩展装入）
-- [x] Phase 2：Managed Node（始终 App 托管）
+- [x] Phase 2：Node 策略（原 Managed Node，2026-08 修订为：直接使用本机 Node，缺失/不兼容即报错，不下载不内置）
 - [x] Phase 3：Extension Layer（adapter + dsh-theme/ui/tools/integrations + 聚合 + 全量验证）
 - [x] Phase 4：runtime/ 构建流水线（build/verify/publish 本机跑通）+ channels/schema + 5 个 workflow
 - [x] Phase 5：Desktop 自动更新（tauri-plugin-updater 接入 + 密钥/清单/发布链路 + 双更新 UI）
 - [x] Phase 6（代码侧）：identifier 更名、Entitlements/签名配置、desktop-release 完整化（baseline+签名+公证+更新清单）、方案 B seed 逻辑
 - [x] Phase 6（分发决策）：**无签名分发路径**（不申请 Apple 账号）——未签名 DMG + 首次右键打开/xattr 放行；README 安装说明已更新
+- [x] 端口进程隔离：**无条件重建**——`start()` 发现端口 3080 上有任何 LISTEN 监听者（含外部 CLI dsh）即结束监听者再拉起自己的实例；`kill_port_holder` 改为 `lsof -sTCP:LISTEN` 精确匹配，仅杀监听者，绝不误杀仅持有普通连接（如浏览器）的无关进程；删除 PID 归属机制与 `pkill -9 node`（见 `src-tauri/src/process/mod.rs`）
 - [ ]（可选，非目标）若日后需要 Gatekeeper 直装/桌面自动更新，再补 Apple 签名公证
 
 ---

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
-import WindowControls from "./components/WindowControls";
+import { Wrench } from "lucide-react";
 import SetupScreen, { InstallProgress, SetupStatus } from "./components/SetupScreen";
 import SidebarPanel, { SidebarBusyAction } from "./components/SidebarPanel";
 import { useI18n } from "./i18n/context";
@@ -9,6 +9,24 @@ import { generateTimestampedUrl } from "./hooks/useAutoSync";
 import { useDshTheme } from "./hooks/useDshTheme";
 
 const MAX_RETRIES = 8;
+
+/**
+ * 侧边栏开关按钮（标准标题栏下，窗口控制由系统三色按钮承担；
+ * 此按钮仅负责展开/收起侧边栏，悬浮于内容区右上角）。
+ */
+function SidebarToggleButton({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  const { t } = useI18n();
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      title={open ? t("app.collapse_sidebar") : t("app.expand_sidebar")}
+      className="fixed right-2 top-2 z-50 flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-ink transition-colors hover:bg-panel-hover"
+    >
+      <Wrench className="size-3.5" />
+    </button>
+  );
+}
 
 interface InstallerState {
   title: string;
@@ -192,7 +210,20 @@ export default function App() {
       if (!config.installed) {
         setStatus("installing");
         setInstaller({ ...initialInstaller, title: t("status.installing") });
-        await invoke("install_dependencies");
+        // 方案 B：bundle 内置基线（Node + Baseline Runtime）→ 等待后台 seed 完成（离线，不联网）；
+        // 无基线（dev / 方案 A 构建）→ 走联网安装
+        const hasBaseline = await invoke<boolean>("has_baseline_resources");
+        if (hasBaseline) {
+          setInstaller({ ...initialInstaller, title: t("status.seeding") });
+          const seeded = await invoke<boolean>("wait_for_baseline_seed");
+          if (!seeded) {
+            // seed 失败/超时 → 回退联网安装
+            setInstaller({ ...initialInstaller, title: t("status.installing") });
+            await invoke("install_dependencies");
+          }
+        } else {
+          await invoke("install_dependencies");
+        }
       }
 
       await launchAndWait();
@@ -324,7 +355,7 @@ export default function App() {
             onRetry={boot}
           />
         </main>
-        <WindowControls sidebarOpen={sidebarOpen} onToggleSidebar={handleToggleSidebar} />
+        <SidebarToggleButton open={sidebarOpen} onToggle={handleToggleSidebar} />
         <SidebarPanel
           open={sidebarOpen}
           serviceRunning={serviceRunning}
@@ -353,7 +384,7 @@ export default function App() {
             onRetry={boot}
           />
         </main>
-        <WindowControls sidebarOpen={sidebarOpen} onToggleSidebar={handleToggleSidebar} />
+        <SidebarToggleButton open={sidebarOpen} onToggle={handleToggleSidebar} />
       </div>
     );
   }
@@ -410,7 +441,7 @@ export default function App() {
           </button>
         </div>
       )}
-      <WindowControls sidebarOpen={sidebarOpen} onToggleSidebar={handleToggleSidebar} />
+      <SidebarToggleButton open={sidebarOpen} onToggle={handleToggleSidebar} />
       <SidebarPanel
         open={sidebarOpen}
         serviceRunning={serviceRunning}

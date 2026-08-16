@@ -1,13 +1,12 @@
-//! Managed Node Runtime（设计文档 §15 / 目录结构 §5 `node/`）。
+//! 本机 Node.js 策略（设计文档 §15 修订版 / 目录结构 §5 `node/`）。
 //!
-//! 原则：**始终使用 App Managed Node**，不依赖系统 Node（`/usr/local/bin/node`、
-//! `/opt/homebrew/bin/node`、nvm）。
+//! 原则（§15 修订）：**直接使用用户本机安装的 Node.js**，不下载、不内置；
+//! 本机缺失或不兼容时**直接报错**（不联网下载、不静默跳过）。
 //!
-//! 当前实现（Phase 2 已完成）：
-//! - Node 安装于 `<app-data>/node/`（`config::get_node_install_path`），带旧路径迁移；
-//! - 二进制路径 `config::get_node_binary_path` 固定指向托管运行时（不再复用系统 Node）；
-//! - 版本常量 `config::NODE_VERSION`（v22.22.0），并随 Runtime Manifest 记录
-//!   `nodeVersion`，随 Runtime 一起升级。
+//! 当前实现：
+//! - 查找范围：PATH + `/opt/homebrew/bin` + `/usr/local/bin`（`config::find_local_node_binary`）；
+//! - 版本要求：v22.15+ / v23.8+ / v24+（`config::require_local_node`，缺失/不兼容返回明确错误）；
+//! - 支持基线常量 `config::NODE_VERSION`（v22.22.0），随 Runtime Manifest 记录
+//!   `nodeVersion`（本机实际版本，读取失败时回退支持基线）。
 //!
-//! 后续（随 Runtime 版本体系演进）：本模块可继续承载 Node 版本矩阵管理、
-//! 多版本共存与兼容性校验等能力。
+//! 设计演进：早期版本曾内置 Managed Node（§15 原案），后按分发诉求改为本机 Node。

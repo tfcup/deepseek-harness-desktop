@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 export type DshThemePreference = "dark" | "light" | "system";
 export type ResolvedTheme = "dark" | "light";
@@ -22,8 +23,9 @@ function resolveTheme(preference: DshThemePreference): ResolvedTheme {
  * 这里解析为最终主题并写到 `<html data-theme="...">`，由 CSS 变量切换配色。
  */
 export function useDshTheme(): ResolvedTheme {
-  const [theme, setTheme] = useState<ResolvedTheme>("dark");
-  const preferenceRef = useRef<DshThemePreference>("dark");
+  // 初始按 system 解析（对齐官方默认），避免启动瞬间先闪深色再纠正
+  const [theme, setTheme] = useState<ResolvedTheme>(() => resolveTheme("system"));
+  const preferenceRef = useRef<DshThemePreference>("system");
 
   useEffect(() => {
     let unlisten: UnlistenFn | null = null;
@@ -65,9 +67,16 @@ export function useDshTheme(): ResolvedTheme {
     };
   }, []);
 
+  // 主题应用到外壳（CSS 变量）+ macOS 窗口外观（标题栏颜色跟随主题）
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
+    void getCurrentWindow().setTheme(theme);
   }, [theme]);
+
+  // 标题栏不显示软件名（软件名仅在 macOS 菜单栏显示）
+  useEffect(() => {
+    void getCurrentWindow().setTitle("");
+  }, []);
 
   return theme;
 }

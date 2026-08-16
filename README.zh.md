@@ -7,7 +7,7 @@
 <h1 align="center">DeepSeek Harness 桌面版</h1>
 
 <p align="center">
-  <em>DeepSeek Harness 的一键式桌面应用 —— 无需安装 Node.js、无需 pnpm、无需 Docker，即可在本地运行完整的 agent 平台。</em>
+  <em>DeepSeek Harness 的一键式桌面应用 —— 只需本机装有 Node.js，即可在本地运行完整的 agent 平台（无需 pnpm / Docker）。</em>
 </p>
 
 <p align="center">
@@ -56,9 +56,9 @@
 **系统要求**
 
 - macOS 11+（仅 Apple Silicon / arm64）
-- 无需任何开发工具（Node.js / Rust / pnpm 均不需要）
+- 需本机已安装 Node.js v22.15+ / v23.8+（v24+ 亦可）——无需 Rust / pnpm / Docker
 
-应用始终使用 **App 托管的 Node.js v22.22.0 LTS** 运行时（安装于应用数据目录，满足 Harness 的 **v22.15.0+ 或 v23.8.0+** 要求）。不依赖系统 Node.js / Homebrew / nvm，保证所有用户环境一致。
+应用**直接使用本机安装的 Node.js**（PATH / Homebrew / nvm 均可），要求 **v22.15+ / v23.8+（v24+ 亦可）**；本机缺失或不兼容时应用会**明确报错**（不联网下载、不内置运行时）。
 
 ## 开发与构建
 
@@ -121,13 +121,13 @@ pnpm icons
 
 ## 数据目录
 
-数据目录由 Tauri 的 bundle identifier（`io.github.tfcup.deepseek-harness-desktop`）决定：
+数据目录为 Application Support 下的自定义命名目录（同 Chrome/VS Code 的做法，不叫 bundle id）：
 
-- macOS：`~/Library/Application Support/io.github.tfcup.deepseek-harness-desktop/`
+- macOS：`~/Library/Application Support/deepseek-harness-desktop/`
 
 包含：
 
-- `node/`：App 托管的 Node.js 运行时
+
 - `runtime/versions/<v>/`：版本化 Harness Runtime
 - `data/dsh/`：Harness 用户数据（`$DSH_HOME`，含 profile、会话、设置）
 - `logs/`：应用与 dsh 服务日志

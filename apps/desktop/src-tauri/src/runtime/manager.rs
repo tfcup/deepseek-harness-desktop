@@ -21,7 +21,7 @@ use crate::runtime::manifest::{self, Channel, RuntimeManifest};
 use crate::service::download::{self, ProgressTracker};
 use serde::Serialize;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tauri::Manager;
 
 /// 版本列表条目（前端展示用）
@@ -251,50 +251,47 @@ pub fn ensure_extensions_for_current(app_handle: &tauri::AppHandle) -> Result<Ex
     install_extensions(app_handle, &vdir)
 }
 
-/// 方案 B（§23）：从 bundle 资源 seed 基线到 app-data（离线开箱即用）。
+/// 定位 baseline 资源目录，兼容两种打包布局：
+/// - 扁平：`<resource_dir>/baseline/`
+/// - 嵌套（Tauri `"resources": ["resources/**/*"]` 的默认映射，实测 release 布局）：
+///   `<resource_dir>/resources/baseline/`
+fn resolve_baseline_dir(resource_dir: &Path) -> PathBuf {
+    for candidate in [
+        resource_dir.join("baseline"),
+        resource_dir.join("resources").join("baseline"),
+    ] {
+        if candidate.join("runtime.zip").exists() {
+            return candidate;
+        }
+    }
+    resource_dir.join("resources").join("baseline")
+}
+
+/// 方案 B（§23）：从 bundle 资源 seed 基线 Runtime 到 app-data（离线开箱即用）。
 ///
 /// 资源布局（CI 构建期放入 `src-tauri/resources/baseline/`）：
-///   - `node.tar.gz`：App Managed Node（darwin-arm64，与 NODE_VERSION 常量一致）
 ///   - `runtime.zip`：Baseline Runtime（runtime/scripts/build-runtime.ts 产物）
 ///
-/// 流程：Node → `app-data/node/`；Runtime → `versions/<v>/` + manifest + current.json
-/// + 扩展装入。返回是否 seed 了内容（调用方据此标记 installed）。
-/// tauri dev / 方案 A 构建无资源时返回 Ok(false)，走原有下载流程。
+/// 说明（§15 修订）：Node 不再内置/下载，直接使用本机 Node（缺失即报错）。
+///
+/// 流程：Runtime → `versions/<v>/` + manifest + current.json + 扩展装入。
+/// 返回是否 seed 了内容（调用方据此标记 installed）。
+/// tauri dev / 无资源构建时返回 Ok(false)，走原有下载流程。
 pub fn seed_baseline_from_resources(app_handle: &tauri::AppHandle) -> Result<bool, String> {
     let resource_dir = app_handle
         .path()
         .resource_dir()
         .map_err(|e| format!("resolve resource_dir failed: {e}"))?;
-    let baseline_dir = resource_dir.join("baseline");
-    let node_tarball = baseline_dir.join("node.tar.gz");
+    let baseline_dir = resolve_baseline_dir(&resource_dir);
     let runtime_zip = baseline_dir.join("runtime.zip");
 
-    if !node_tarball.exists() && !runtime_zip.exists() {
-        log::debug!("no baseline resources (dev / plan A build), skipping seed");
+    if !runtime_zip.exists() {
+        log::debug!("no baseline runtime resource (dev / plan A build), skipping seed");
         return Ok(false);
     }
     let mut seeded = false;
 
-    // 1) Node（未安装且资源存在时）
-    if !config::get_node_binary_path(app_handle).exists() && node_tarball.exists() {
-        let buffer = fs::read(&node_tarball).map_err(|e| format!("read node.tar.gz failed: {e}"))?;
-        let window = app_handle
-            .get_webview_window("main")
-            .ok_or("Failed to get main window")?;
-        let mut tracker = download::ProgressTracker::new(&window, 1);
-        tracker.start_phase("extract", "seeding managed node");
-        download::ensure_extract(
-            &tracker,
-            "node.tar.gz".to_string(),
-            buffer,
-            config::get_node_install_path(app_handle),
-        )?;
-        tracker.end_phase();
-        seeded = true;
-        log::info!("baseline node seeded → {:?}", config::get_node_install_path(app_handle));
-    }
-
-    // 2) Baseline Runtime（无当前版本且资源存在时）
+    // 1) Baseline Runtime（无当前版本且资源存在时）
     if RuntimeManifest::load_current(app_handle).is_none() && runtime_zip.exists() {
         let version = next_runtime_version(app_handle);
         let versions_dir = config::get_runtime_versions_dir(app_handle);
@@ -329,6 +326,36 @@ pub fn seed_baseline_from_resources(app_handle: &tauri::AppHandle) -> Result<boo
     }
 
     Ok(seeded)
+}
+
+/// 是否存在方案 B 基线资源（bundle 内置 node/runtime）
+pub fn has_baseline_resources(app_handle: &tauri::AppHandle) -> bool {
+    let Ok(resource_dir) = app_handle.path().resource_dir() else {
+        return false;
+    };
+    resolve_baseline_dir(&resource_dir).join("runtime.zip").exists()
+}
+
+/// 等待后台基线 seed 完成（最多 120s；seed 完成会把 installed 置 true）。
+///
+/// - 已安装 → 立即 true（无需等待）；
+/// - 无基线资源 → 立即 false（前端回退联网安装）；
+/// - 有基线 → 轮询 installed（seed 在解压完 runtime 后才置位），超时返回 false。
+pub async fn wait_for_baseline_seed(app_handle: &tauri::AppHandle) -> bool {
+    if config::get_store_dat_setting(app_handle).installed {
+        return true;
+    }
+    if !has_baseline_resources(app_handle) {
+        return false;
+    }
+    for _ in 0..240 {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        if config::get_store_dat_setting(app_handle).installed {
+            return true;
+        }
+    }
+    log::warn!("baseline seed 超时（120s），installed 仍未置位");
+    false
 }
 
 /// 递归复制目录
@@ -367,7 +394,7 @@ fn build_manifest(
             .unwrap_or_else(|| "0.0.0".to_string()),
         node_version: remote
             .map(|m| m.node_version.clone())
-            .unwrap_or_else(config::get_bundled_node_version),
+            .unwrap_or_else(config::get_supported_node_version),
         platform,
         arch,
         url: remote.map(|m| m.url.clone()).unwrap_or_default(),
@@ -559,5 +586,31 @@ mod tests {
     fn next_version_seq_increments() {
         // 纯逻辑验证：version_gt 对同日序号递增
         assert!(RuntimeManifest::version_gt("2026.08.15.2", "2026.08.15.1"));
+    }
+
+    #[test]
+    fn baseline_dir_resolves_nested_and_flat_layouts() {
+        let dir = std::env::temp_dir().join(format!("dsh_baseline_dir_{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+
+        // 仅嵌套布局（Tauri release 实际布局：<resource>/resources/baseline/）
+        let nested = dir.join("resources").join("baseline");
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(nested.join("runtime.zip"), b"x").unwrap();
+        assert_eq!(resolve_baseline_dir(&dir), nested, "应命中嵌套布局");
+
+        // 扁平布局也存在 → 扁平优先
+        let flat = dir.join("baseline");
+        fs::create_dir_all(&flat).unwrap();
+        fs::write(flat.join("runtime.zip"), b"y").unwrap();
+        assert_eq!(resolve_baseline_dir(&dir), flat, "两种布局并存时应命中扁平");
+
+        // 无 runtime.zip → 回退嵌套默认
+        let empty = dir.join("empty");
+        fs::create_dir_all(&empty).unwrap();
+        let resolved = resolve_baseline_dir(&empty);
+        assert!(resolved.ends_with("resources/baseline"), "无资源时应回退嵌套默认");
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

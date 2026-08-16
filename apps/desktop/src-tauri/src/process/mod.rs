@@ -3,7 +3,7 @@ pub mod utils;
 
 use crate::config;
 use crate::service::download;
-use crate::process::utils::{is_dsh_running, is_port_in_use, spawn_output_readers};
+use crate::process::utils::{is_dsh_running, spawn_output_readers};
 use std::collections::HashMap;
 use std::fs;
 use std::process::{Command, Stdio};
@@ -13,26 +13,49 @@ use tauri::Manager;
 /// 启动守卫：并发调用 `launch` 时只允许一个真正拉起 dsh 进程
 static LAUNCH_GUARD: AtomicBool = AtomicBool::new(false);
 
-/// 强制结束占用指定端口的进程（用于停止服务或清理僵尸进程）
+/// 端口是否被某个进程监听（LISTEN 状态，lsof 精确判定）。
+/// 只检测"监听者"，不检测普通连接：浏览器等仅持有到端口连接（非监听）的进程不算占用，
+/// 避免误判/误杀无关进程。
+fn is_port_listened(port: u16) -> bool {
+    let out = Command::new("sh")
+        .arg("-c")
+        .arg(format!("lsof -nP -iTCP:{} -sTCP:LISTEN -t", port))
+        .output();
+    match out {
+        Ok(o) => !o.stdout.is_empty(),
+        Err(e) => {
+            log::debug!("Failed to probe port {port} listener: {e}");
+            false
+        }
+    }
+}
+
+/// 强制结束监听指定端口的进程（仅 LISTEN 状态的监听者；用于停止服务或清理僵尸进程）。
+/// 绝不使用 `lsof -i` 全量匹配：只有监听 socket 才会被结束，
+/// 仅持有普通连接（非监听）的无关进程不会被误杀。
 fn kill_port_holder(port: u16) {
-    // 使用 lsof 找到占用端口的进程并强制结束
+    // 使用 lsof 找到监听端口的进程并强制结束
     let _ = Command::new("sh")
         .arg("-c")
-        .arg(format!("lsof -ti:{} | xargs kill -9", port))
+        .arg(format!(
+            "lsof -nP -iTCP:{} -sTCP:LISTEN -t | xargs kill -9",
+            port
+        ))
         .output();
 }
 
 /// 检测并启动 Harness 服务
 pub async fn start(app_handle: tauri::AppHandle) -> Result<(), String> {
     let setting = config::get_store_dat_setting(&app_handle);
-    let node_binary_path = config::get_node_binary_path(&app_handle);
     let dsh_binary_path = config::get_dsh_binary_path(&app_handle);
 
     if !setting.installed {
         log::debug!("Harness not installed, skipping startup");
         return Ok(());
     }
-    if !node_binary_path.exists() || !dsh_binary_path.exists() {
+    // 本机 Node 方案（§15 修订）：缺失/不兼容直接报错，不下载、不内置
+    config::require_local_node()?;
+    if !dsh_binary_path.exists() {
         let mut setting = config::get_store_dat_setting(&app_handle);
         setting.installed = false;
         config::set_store_dat_setting(&app_handle, setting);
@@ -41,20 +64,16 @@ pub async fn start(app_handle: tauri::AppHandle) -> Result<(), String> {
     }
 
     log::debug!("Checking Harness running status");
-    let port_in_use = is_port_in_use(setting.port);
-    let dsh_running = is_dsh_running().await;
 
-    if port_in_use && !dsh_running {
-        log::info!("Harness is not running, but port is in use, stopping harness");
+    // 无条件重建（数据隔离）：端口上有任何监听进程——无论是否本应用拉起的 dsh，
+    // 还是外部 CLI dsh——都先结束监听者，再启动自己的实例。
+    // 只针对 LISTEN 监听者，绝不触碰仅持有普通连接的无关进程。
+    if is_port_listened(setting.port) {
+        log::info!(
+            "Port {} has a listening process, stopping it before starting own instance",
+            setting.port
+        );
         stop(app_handle.clone()).await?;
-        return Ok(());
-    }
-
-    if dsh_running {
-        log::info!("Harness is already running");
-        status::set_status(status::Status::Running);
-        status::emit_status(&app_handle);
-        return Ok(());
     }
 
     log::info!("Starting Harness service");
@@ -85,40 +104,28 @@ pub async fn launch(app_handle: tauri::AppHandle) -> Result<(), String> {
     let node_binary_path = config::get_node_binary_path(&app_handle);
     let dsh_binary_path = config::get_dsh_binary_path(&app_handle);
 
-    log::debug!("Checking Node.js path: {:?}", node_binary_path);
-    if !node_binary_path.exists() {
-        log::error!("Node.js not installed");
-        return Err("NODE_NOT_FOUND: Node.js not installed".to_string());
-    }
+    // 本机 Node 方案（§15 修订）：使用本机 Node，缺失/不兼容直接报错
+    config::require_local_node()?;
     log::debug!("Checking Harness path: {:?}", dsh_binary_path);
     if !dsh_binary_path.exists() {
         log::error!("Harness not installed");
         return Err("HARNESS_NOT_FOUND: Harness not installed".to_string());
     }
 
-    // 避免重复启动（配合启动守卫，确保并发调用只拉起一个进程）
-    if is_dsh_running().await {
-        log::info!("Harness is already running, skipping launch");
-        return Ok(());
-    }
+    // 启动守卫：并发调用时只允许一个真正拉起 dsh 进程
     if LAUNCH_GUARD.swap(true, Ordering::SeqCst) {
         log::info!("Harness launch already in progress, skipping");
         return Ok(());
     }
 
-    // 端口被占用但服务未响应：先清理僵尸进程，避免 dsh EADDRINUSE 崩溃
-    if is_port_in_use(setting.port) {
+    // 端口被监听但服务未响应：先清理僵尸监听者，避免 dsh EADDRINUSE 崩溃
+    if is_port_listened(setting.port) {
         log::warn!(
             "Port {} is occupied but harness is not responding, cleaning up",
             setting.port
         );
         kill_port_holder(setting.port);
         tokio::time::sleep(std::time::Duration::from_millis(800)).await;
-    }
-
-    #[cfg(unix)]
-    {
-        let _ = Command::new("pkill").arg("-9").arg("node").output();
     }
 
     // 构造环境变量：隔离的 $DSH_HOME + 隐私默认（关闭遥测）
@@ -222,12 +229,15 @@ pub fn stop_on_exit(_app_handle: tauri::AppHandle, port: u16) {
     kill_port_holder(port);
 }
 
-/// 安装环境（Node.js 运行时 + 打包的 Harness 发行版）
+/// 安装环境（打包的 Harness 发行版；Node.js 使用本机安装，缺失/不兼容即报错）
 pub async fn install(
     app_handle: &tauri::AppHandle,
     dsh_latest_commit: Option<String>,
 ) -> Result<(), String> {
     log::info!("Starting installation process");
+
+    // 本机 Node 方案（§15 修订）：先校验本机 Node，缺失/不兼容直接报错（不下载、不内置）
+    config::require_local_node()?;
 
     // 安装前先停止正在运行的 Harness 服务，避免运行中的进程占用文件导致覆盖解压失败。
     // 注意不能只依赖 HTTP 探测：服务崩溃/失去响应时探测不到，因此探测不到时也要强制清理。
@@ -244,15 +254,14 @@ pub async fn install(
         .get_webview_window("main")
         .ok_or("Failed to get main window")?;
     log::debug!("Main window obtained");
-    let mut tracker = download::ProgressTracker::new(&window, 4);
-    let tasks: Vec<Box<dyn download::Installable>> =
-        vec![Box::new(download::Nodejs), Box::new(download::Dsh)];
+    let mut tracker = download::ProgressTracker::new(&window, 2);
+    let tasks: Vec<Box<dyn download::Installable>> = vec![Box::new(download::Dsh)];
     log::info!("Task list created, {} tasks total", tasks.len());
 
     for (index, task) in tasks.iter().enumerate() {
         log::debug!("Processing task {}/{}", index + 1, tasks.len());
         // 已安装但 commit 与最新 release 不一致时强制重新下载
-        let outdated = index == 1
+        let outdated = index == 0
             && dsh_latest_commit.is_some()
             && config::get_dsh_pkg_commit(app_handle).as_deref() != dsh_latest_commit.as_deref();
         if task.check_installed(app_handle) && !outdated {

@@ -1,10 +1,7 @@
 use std::time::Duration;
 
-/// 捆绑的 Node.js 运行时版本（满足 v22.15.0+ / v23.8.0+ 的要求）
+/// 支持的 Node.js 版本基线（本机 Node 方案：直接使用用户本机 Node，缺失/不兼容即报错）
 pub const NODE_VERSION: &str = "v22.22.0";
-
-/// Node.js 官方下载地址
-pub const NODE_BASE_URL: &str = "https://nodejs.org/dist/";
 
 /// 打包的 DeepSeek Harness 发行版下载地址（GitHub Release）
 pub const DSH_CORE_URL: &str =

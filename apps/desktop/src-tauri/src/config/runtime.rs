@@ -2,29 +2,153 @@ use serde::Serialize;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Runtime};
 
 use super::constants::*;
 use super::format::get_dsh_service_url;
 
-/// 获取 App Data 基础目录
-pub fn get_base_dir<R: Runtime>(app_handle: &AppHandle<R>) -> PathBuf {
-    app_handle
-        .path()
-        .app_data_dir()
-        .expect("Failed to resolve app data directory")
+/// 获取 App Data 基础目录（自定义：`~/Library/Application Support/deepseek-harness-desktop`）
+///
+/// 说明：macOS 并不要求该目录名等于 bundle identifier——其他应用（Chrome/VS Code/
+/// Telegram 等）都在代码里自定义此目录名。这里显式使用 `deepseek-harness-desktop`
+/// （不走 Tauri 默认的 identifier 命名），并配套让 store 使用绝对路径（见 setting.rs）。
+pub fn get_base_dir<R: Runtime>(_app_handle: &AppHandle<R>) -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_default();
+    PathBuf::from(home)
+        .join("Library")
+        .join("Application Support")
+        .join("deepseek-harness-desktop")
 }
 
-/// Node.js 运行时下载地址（macOS ARM64 only）
-pub fn get_node_download_url() -> Result<String, String> {
-    let arch = env::consts::ARCH;
-    let os = env::consts::OS;
-    if os != "macos" || arch != "aarch64" {
-        return Err(format!("Unsupported platform: {} {}", os, arch));
+/// 通过登录 shell 解析 node（GUI 应用从 Finder 启动时 PATH 不完整——launchd 只给
+/// 系统默认 PATH；登录 shell 能加载用户配置拿到真实 PATH）。
+///
+/// 注意：用户常把 node 的 PATH 加在 `~/.zshrc`（交互式配置），非交互登录 shell
+/// 不加载它，因此**必须用 `-lic`（登录+交互）**才能覆盖；`-lc` 兜底覆盖 .zprofile
+/// 场景；bash 用 `-lc`（.bash_profile 登录时加载）。
+fn resolve_node_via_login_shell() -> Option<PathBuf> {
+    const VARIANTS: [(&str, &[&str]); 3] = [
+        ("/bin/zsh", &["-lic", "command -v node"]),
+        ("/bin/zsh", &["-lc", "command -v node"]),
+        ("/bin/bash", &["-lc", "command -v node"]),
+    ];
+    for (shell, args) in VARIANTS {
+        let Ok(output) = std::process::Command::new(shell).args(args).output() else {
+            continue;
+        };
+        if !output.status.success() {
+            continue;
+        }
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if path.is_empty() {
+            continue;
+        }
+        let p = PathBuf::from(&path);
+        if p.is_file() {
+            return Some(p);
+        }
     }
+    None
+}
 
-    let filename = format!("node-{}-darwin-arm64.tar.gz", NODE_VERSION);
-    Ok(format!("{}/{}/{}", NODE_BASE_URL, NODE_VERSION, filename))
+/// 常见版本管理器/安装目录（GUI 场景 PATH 不含这些，显式补充）
+fn common_node_dirs() -> Vec<PathBuf> {
+    let mut dirs = vec![
+        PathBuf::from("/opt/homebrew/bin"),
+        PathBuf::from("/usr/local/bin"),
+    ];
+    if let Ok(home) = std::env::var("HOME") {
+        let home = PathBuf::from(home);
+        // nvm：~/.nvm/versions/node/<v>/bin（版本目录按名称升序，取最新）
+        if let Ok(entries) = fs::read_dir(home.join(".nvm").join("versions").join("node")) {
+            let mut versions: Vec<PathBuf> = entries
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.is_dir())
+                .collect();
+            versions.sort();
+            if let Some(latest) = versions.last() {
+                dirs.push(latest.join("bin"));
+            }
+        }
+        dirs.push(home.join(".volta").join("bin"));
+        dirs.push(home.join(".nodenv").join("shims"));
+        dirs.push(home.join(".fnm"));
+    }
+    dirs
+}
+
+/// 在 PATH、登录 shell 及常见安装目录中查找 node 可执行文件（不校验版本）
+fn find_local_node_binary() -> Option<PathBuf> {
+    // 1) 当前 PATH（终端启动 dev 时通常直接命中）
+    for dir in std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()) {
+        let candidate = dir.join("node");
+        if candidate.is_file() && is_executable(&candidate) {
+            return Some(candidate);
+        }
+    }
+    // 2) 登录 shell（GUI 启动时 PATH 不完整，登录 shell 能拿到用户真实 PATH）
+    if let Some(p) = resolve_node_via_login_shell() {
+        if p.is_file() && is_executable(&p) {
+            return Some(p);
+        }
+    }
+    // 3) 常见版本管理器/安装目录
+    for dir in common_node_dirs() {
+        let candidate = dir.join("node");
+        if candidate.is_file() && is_executable(&candidate) {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn is_executable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    path.metadata()
+        .map(|meta| meta.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false)
+}
+
+/// 运行 `node --version` 并捕获输出
+fn node_version_output(node: &Path) -> Option<std::process::Output> {
+    std::process::Command::new(node)
+        .arg("--version")
+        .output()
+        .ok()
+}
+
+/// 本机 Node.js 二进制路径（设计文档 §15 修订版：直接使用本机 Node，不下载、不内置）
+///
+/// 查找范围：PATH + /opt/homebrew/bin + /usr/local/bin。找不到时返回默认候选路径
+/// （通常不存在），由 `require_local_node` 给出明确报错。
+pub fn get_node_binary_path(_app_handle: &tauri::AppHandle) -> PathBuf {
+    find_local_node_binary().unwrap_or_else(|| PathBuf::from("/usr/local/bin/node"))
+}
+
+/// 检查本机 Node.js 是否可用且兼容；缺失/不兼容时返回明确错误（不下载、不内置）
+pub fn require_local_node() -> Result<PathBuf, String> {
+    let Some(node) = find_local_node_binary() else {
+        return Err(
+            "未找到 Node.js：请先安装 Node.js v22.15+ / v23.8+（https://nodejs.org 或 brew install node）。\
+             若已安装仍提示找不到，请确认终端里 `node -v` 可用（nvm 需先 `nvm use <版本>` 再启动应用），\
+             或将 node 安装到 /usr/local/bin。"
+                .to_string(),
+        );
+    };
+    let output = node_version_output(&node).ok_or("无法运行 node --version")?;
+    if !output.status.success() {
+        return Err(format!("node --version 执行失败：{}", node.display()));
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let version = stdout.trim();
+    if !is_supported_node_version(version) {
+        return Err(format!(
+            "Node.js 版本不兼容：当前 {}，需要 v22.15+ / v23.8+（v24+ 亦可）",
+            version
+        ));
+    }
+    Ok(node)
 }
 
 /// 打包的 DeepSeek Harness 发行版下载地址（macOS ARM64 only）
@@ -39,39 +163,20 @@ pub fn get_dsh_download_url() -> Result<String, String> {
     Ok(format!("{}{}", DSH_CORE_URL, filename))
 }
 
-/// 运行 `node --version` 并捕获输出
-fn node_version_output(node: &Path) -> Option<std::process::Output> {
-    std::process::Command::new(node)
-        .arg("--version")
-        .output()
-        .ok()
-}
-
-/// Node.js 二进制路径（App Managed Node，设计文档 §15：始终使用 App 管理的运行时，
-/// 不依赖系统 Node / Homebrew / nvm）
-pub fn get_node_binary_path(app_handle: &tauri::AppHandle) -> PathBuf {
-    let runtime_dir = get_node_install_path(app_handle);
-    runtime_dir.join("bin").join("node")
-}
-
-/// Node.js 安装目录（App Managed Node，设计文档 §15 / §24）
-///
-/// 旧版本将 Node 放在 `<app-data>/runtime/`，此处做一次性迁移到独立的 `node/` 目录：
-/// 仅当旧目录存在、新目录不存在且旧目录确有 Node 内容时移动（幂等）。
-pub fn get_node_install_path(app_handle: &tauri::AppHandle) -> PathBuf {
-    let base_dir = get_base_dir(app_handle);
-    let new_dir = base_dir.join("node");
-    let legacy_dir = base_dir.join("runtime");
-
-    if !new_dir.exists() && legacy_dir.exists() && legacy_dir.join("bin").join("node").exists() {
-        log::info!("Migrating legacy Node runtime dir: runtime/ -> node/");
-        if let Err(e) = fs::rename(&legacy_dir, &new_dir) {
-            log::warn!("Node dir migration failed ({}), will use legacy dir", e);
-            return legacy_dir;
+/// 本机 Node.js 版本号（读 `node --version`；读取失败时回退为支持基线用于展示）
+pub fn get_active_node_version() -> String {
+    if let Some(node) = find_local_node_binary() {
+        if let Some(output) = node_version_output(&node) {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let version = stdout.trim().trim_start_matches('v');
+                if !version.is_empty() {
+                    return version.to_string();
+                }
+            }
         }
     }
-
-    new_dir
+    get_supported_node_version()
 }
 
 /// Runtime 多版本目录（设计文档 §14）：`<app-data>/runtime/versions/`。Phase 1 使用
@@ -145,8 +250,8 @@ pub fn get_service_log_path(app_handle: &tauri::AppHandle) -> PathBuf {
     get_base_dir(app_handle).join("logs").join("dsh-web.log")
 }
 
-/// 捆绑的 Node.js 版本号（Managed Node，§15）
-pub fn get_bundled_node_version() -> String {
+/// 支持/推荐的 Node.js 版本基线（dsh 要求 v22.15+ / v23.8+；用于展示与报错提示）
+pub fn get_supported_node_version() -> String {
     NODE_VERSION.trim_start_matches('v').to_string()
 }
 
@@ -172,15 +277,13 @@ fn is_supported_node_version(version: &str) -> bool {
     }
 }
 
-/// 运行 `node --version` 并判断运行时是否兼容
-pub fn is_runtime_compatible(app_handle: &tauri::AppHandle) -> bool {
-    let node = get_node_binary_path(app_handle);
-    if !node.exists() {
+/// 本机 Node.js 是否可用且版本兼容
+pub fn is_runtime_compatible(_app_handle: &tauri::AppHandle) -> bool {
+    let Some(node) = find_local_node_binary() else {
         return false;
-    }
-    let output = match node_version_output(&node) {
-        Some(out) => out,
-        None => return false,
+    };
+    let Some(output) = node_version_output(&node) else {
+        return false;
     };
     if !output.status.success() {
         return false;
@@ -219,11 +322,7 @@ pub struct RuntimeInfo {
 }
 
 pub fn runtime_info<R: Runtime>(app: &AppHandle<R>, port: u16) -> RuntimeInfo {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_default();
+    let app_data_dir = get_base_dir(app).to_string_lossy().into_owned();
 
     let manifest = crate::runtime::manifest::RuntimeManifest::load_current(app);
 
@@ -232,7 +331,7 @@ pub fn runtime_info<R: Runtime>(app: &AppHandle<R>, port: u16) -> RuntimeInfo {
         dsh_version: get_dsh_version(app),
         runtime_version: manifest.as_ref().map(|m| m.runtime_version.clone()),
         extension_version: manifest.as_ref().map(|m| m.extension_version.clone()),
-        node_version: get_bundled_node_version(),
+        node_version: get_active_node_version(),
         service_url: get_dsh_service_url(port),
         data_dir: app_data_dir.clone(),
         log_path: PathBuf::from(&app_data_dir)
@@ -242,5 +341,22 @@ pub fn runtime_info<R: Runtime>(app: &AppHandle<R>, port: u16) -> RuntimeInfo {
             .into_owned(),
         platform: env::consts::OS.to_string(),
         arch: env::consts::ARCH.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finds_node_with_gui_launchd_path() {
+        // 模拟 GUI 应用从 Finder 启动时的最小 PATH（launchd 默认，不含用户自定义目录）
+        std::env::set_var("PATH", "/usr/bin:/bin:/usr/sbin:/sbin");
+        let node = find_local_node_binary();
+        assert!(node.is_some(), "GUI 最小 PATH 下应能定位到 node（登录 shell / 常见目录兜底）");
+        let node = node.unwrap();
+        assert!(node.is_file(), "解析到的 node 应为真实文件: {}", node.display());
+        let out = node_version_output(&node).expect("node --version 应可执行");
+        assert!(out.status.success(), "解析到的 node 应可运行");
     }
 }

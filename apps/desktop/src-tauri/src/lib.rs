@@ -138,6 +138,8 @@ fn handler() -> impl Fn(Invoke<Wry>) -> bool + Send + Sync + 'static {
         bridge::cmd::install_runtime_zip,
         bridge::cmd::rollback_runtime,
         bridge::cmd::ensure_runtime_extensions,
+        bridge::cmd::has_baseline_resources,
+        bridge::cmd::wait_for_baseline_seed,
         bridge::cmd::get_app_config,
         bridge::cmd::update_app_config,
         bridge::cmd::open_in_browser,

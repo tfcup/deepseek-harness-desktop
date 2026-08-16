@@ -9,5 +9,5 @@ pub use core::{
     download_file, ensure_extract, fetch_latest_dsh_pkg_commit, fetch_latest_dsh_pkg_info,
     LatestDshPkg,
 };
-pub use installable::{Dsh, Installable, Nodejs};
+pub use installable::{Dsh, Installable};
 pub use progress::ProgressTracker;

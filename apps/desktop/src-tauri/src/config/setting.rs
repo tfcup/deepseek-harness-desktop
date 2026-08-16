@@ -28,7 +28,7 @@ impl Default for Setting {
 
 pub fn set_store_dat_setting(app_handle: &AppHandle, setting: Setting) {
     let store = app_handle
-        .store(STORE_DAT_FILE)
+        .store(crate::config::get_base_dir(app_handle).join(STORE_DAT_FILE))
         .expect("Failed to load store");
     store.set(STORE_SETTING_KEY, serde_json::to_value(&setting).unwrap());
     store.save().expect("Failed to save store");
@@ -39,7 +39,7 @@ pub fn set_store_dat_setting(app_handle: &AppHandle, setting: Setting) {
 
 pub fn get_store_dat_setting(app_handle: &AppHandle) -> Setting {
     let store = app_handle
-        .store(STORE_DAT_FILE)
+        .store(crate::config::get_base_dir(app_handle).join(STORE_DAT_FILE))
         .expect("Failed to load store");
     let raw = store.get(STORE_SETTING_KEY);
     let value = raw.as_ref().and_then(|v| {
