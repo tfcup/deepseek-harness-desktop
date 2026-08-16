@@ -21,6 +21,10 @@ jobs:
     runs-on: macos-14
     env:
       RAW_VERSION: ${{ github.event.inputs.version || github.ref_name }}
+      # secrets 只能在 env 中引用；step 的 if 使用这些布尔标志
+      HAS_CERT: ${{ secrets.DEVELOPER_ID_CERT_P12 != '' }}
+      HAS_APPLE_ID: ${{ secrets.APPLE_ID != '' }}
+      HAS_SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -67,7 +71,7 @@ jobs:
 
       # ---------- 签名与公证 ----------
       - name: 导入 Developer ID 证书到 Keychain
-        if: ${{ secrets.DEVELOPER_ID_CERT_P12 != '' }}
+        if: ${{ env.HAS_CERT == 'true' }}
         env:
           P12_B64: ${{ secrets.DEVELOPER_ID_CERT_P12 }}
           P12_PASSWORD: ${{ secrets.CERT_PASSWORD }}
@@ -91,13 +95,13 @@ jobs:
           pnpm tauri build --target aarch64-apple-darwin
 
       - name: 校验代码签名
-        if: ${{ secrets.DEVELOPER_ID_CERT_P12 != '' }}
+        if: ${{ env.HAS_CERT == 'true' }}
         run: |
           APP=$(find apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle -name "*.app" -maxdepth 3 | head -1)
           codesign --verify --deep --strict --verbose=2 "$APP"
 
       - name: 公证（notarytool submit + staple + spctl 门禁）
-        if: ${{ secrets.APPLE_ID != '' }}
+        if: ${{ env.HAS_APPLE_ID == 'true' }}
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -124,7 +128,7 @@ jobs:
 
       # ---------- Desktop Update 清单（§18；仅配置了签名密钥时启用） ----------
       - name: 生成 latest.json + 签名并补充上传
-        if: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+        if: ${{ env.HAS_SIGNING_KEY == 'true' }}
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -141,7 +145,7 @@ jobs:
             --out updater/dist/latest.json
 
       - name: 更新 Release 附加 updater 产物
-        if: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+        if: ${{ env.HAS_SIGNING_KEY == 'true' }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.VERSION }}
