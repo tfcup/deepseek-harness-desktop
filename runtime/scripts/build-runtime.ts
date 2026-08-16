@@ -26,7 +26,7 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
@@ -56,8 +56,8 @@ function resolveDshBase(): string {
   try {
     const bin = execFileSync("which", ["dsh"], { encoding: "utf8" }).trim();
     if (bin) {
-      // <prefix>/global_packages/bin/dsh → <prefix>/global_packages/lib/node_modules
-      candidates.push(join(dirname(bin), "..", "lib", "node_modules"));
+      // <prefix>/global_packages/bin/dsh → <prefix>/global_packages/lib（含 node_modules）
+      candidates.push(join(dirname(bin), "..", "lib"));
     }
   } catch {
     /* PATH 无 dsh */
@@ -106,7 +106,8 @@ function readFileSyncList(dir: string): string[] {
 function main(): void {
   const channel = arg("--channel", "dev");
   const noZip = process.argv.includes("--no-zip");
-  const outDir = arg("--out", join(RUNTIME_DIR, "dist"));
+  // 绝对化输出目录：zip 的 cwd 是 tmpdir，相对路径会导致输出文件找不到
+  const outDir = resolve(arg("--out", join(RUNTIME_DIR, "dist")));
   const version = nextVersion(outDir);
   const dshBase = resolveDshBase();
   const harnessVersion = packageVersion(join(dshBase, "node_modules", "@deepseek-ai", "dsh"));

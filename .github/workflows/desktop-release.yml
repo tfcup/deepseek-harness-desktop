@@ -52,15 +52,13 @@ jobs:
 
       - name: 准备 Baseline Runtime（固定 dsh + Extension Pack → zip）
         run: |
-          # dsh 基座装到 RUNNER_TEMP（仓库外，避免 workspace 干扰）
+          # dsh 基座装到 RUNNER_TEMP（仓库外）。用 npm 而非 pnpm：
+          #  - npm 原生执行 postinstall（node-pty/koffi 等原生模块），无 pnpm 审批问题；
+          #  - npm 布局是真实目录（无符号链接），runtime zip 更小（~80MB vs pnpm ~450MB）。
           mkdir -p "$RUNNER_TEMP/dsh-base"
           cd "$RUNNER_TEMP/dsh-base"
           echo '{"name":"dsh-base","private":true,"dependencies":{"@deepseek-ai/dsh":"latest"}}' > package.json
-          # pnpm 11 默认拒绝 postinstall；dsh 的原生依赖（node-pty/koffi 等）必须构建。
-          # 基座是固定官方 registry 依赖，放行全部构建脚本（比维护 allowBuilds 列表免维护）。
-          # 注意：.npmrc 的 dangerously-allow-all-builds 键无效，必须用 pnpm-workspace.yaml。
-          printf 'packages: []\ndangerouslyAllowAllBuilds: true\n' > pnpm-workspace.yaml
-          pnpm install
+          npm install --no-audit --no-fund
           cd "$GITHUB_WORKSPACE"
           OUT=$(DSH_BASE="$RUNNER_TEMP/dsh-base" \
             node runtime/scripts/build-runtime.ts --channel dev --out runtime/dist)
