@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.1.9-4D6BFE?style=flat-square" alt="version 0.1.9" />
+  <img src="https://img.shields.io/badge/version-0.1.10-4D6BFE?style=flat-square" alt="version 0.1.10" />
   <img src="https://img.shields.io/github/v/release/tfcup/deepseek-harness-desktop?style=flat-square" alt="latest release" />
   <img src="https://img.shields.io/github/downloads/tfcup/deepseek-harness-desktop/total?style=flat-square" alt="downloads" />
   <img src="https://img.shields.io/github/stars/tfcup/deepseek-harness-desktop?style=flat-square" alt="GitHub stars" />
