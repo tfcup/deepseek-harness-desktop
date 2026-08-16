@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
   "channel": "dev",
-  "runtimeVersion": "2026.08.15.1",
+  "runtimeVersion": "2026.08.16.1",
   "harnessVersion": "0.1.0-rc.6",
   "extensionVersion": "0.1.0",
   "nodeVersion": "22.22.0",
   "platform": "darwin",
   "arch": "arm64",
-  "url": "https://github.com/tfcup/deepseek-harness-desktop/releases/download/runtime-2026.08.15.1/runtime-2026.08.15.1-arm64.zip",
-  "sha256": "759f77134fcb34228ed5717f9ba239f746d5310abef26848c13453ff0229bde2",
+  "url": "https://github.com/tfcup/deepseek-harness-desktop/releases/download/runtime-2026.08.16.1/runtime-2026.08.16.1-arm64.zip",
+  "sha256": "d774efb13a74e7820f698df369b2358f8190a478a117b57ec5db38c31e5643e0",
   "minimumDesktopVersion": "0.1.0",
-  "publishedAt": "2026-08-15T15:37:54.409Z"
+  "publishedAt": "2026-08-16T04:21:20.967Z"
 }
