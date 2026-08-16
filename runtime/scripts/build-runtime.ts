@@ -116,9 +116,11 @@ function main(): void {
   console.log(`[build] dsh-base=${dshBase}`);
 
   // 1) dsh 基座（固定版本官方 Harness）
+  // dereference: pnpm 布局是符号链接树（node_modules/.pnpm），必须解引用为真实文件，
+  // 否则复制出的 runtime 基座是断链（CI 场景）
   const dshDest = join(staging, "node_modules", "@deepseek-ai", "dsh");
   mkdirSync(dirname(dshDest), { recursive: true });
-  cpSync(dshBase, dshDest, { recursive: true });
+  cpSync(dshBase, dshDest, { recursive: true, dereference: true });
   console.log(`[build] dsh base → ${dshDest}`);
 
   // 2) 根 package.json（harness 包清单，桌面端 DSH_MANIFEST_RELATIVE=package.json）

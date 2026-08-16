@@ -31,7 +31,7 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 11
 
       - name: 固定 @deepseek-ai/dsh 版本并安装到基座
         run: |
