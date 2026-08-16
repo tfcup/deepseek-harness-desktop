@@ -1,0 +1,12 @@
+{
+  "name": "dsh-desktop-bundle",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Aggregation bundle for the DeepSeek Harness Desktop Extension Pack — its cordis.patch.yml inserts the leaf pack rows (theme/ui/tools/integrations) into the harness plugin tree (design doc Layer 3).",
+  "type": "module",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

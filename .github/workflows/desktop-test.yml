@@ -1,0 +1,40 @@
+# Desktop 测试（设计文档 §12 / 质量门）：Rust check/test + 前端构建
+name: desktop-test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: 安装前端依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: Rust 检查与测试
+        run: |
+          cd apps/desktop/src-tauri
+          cargo check
+          cargo test
+
+      - name: 前端类型检查与构建
+        run: pnpm --filter deepseek-harness-desktop build
+
+      - name: Extension Pack 行为测试（无 dsh 运行时依赖）
+        run: |
+          node packages/harness-adapter/scripts/verify-theme-logic.ts
+          node packages/harness-adapter/scripts/verify-ui-logic.ts
+          node packages/harness-adapter/scripts/verify-host-plugins.ts

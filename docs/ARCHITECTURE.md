@@ -43,24 +43,39 @@
 
 ## 数据目录
 
-- Windows：`%APPDATA%\io.github.hairyf.deepseek-harness-desktop\`
-- macOS：`~/Library/Application Support/io.github.hairyf.deepseek-harness-desktop/`
-- Linux：`~/.local/share/io.github.hairyf.deepseek-harness-desktop/`
+- macOS：`~/Library/Application Support/io.github.tfcup.deepseek-harness-desktop/`
 
-包含：`runtime/`（Node.js）、`dependencies/dsh/`（harness 发行版）、
+包含：`node/`（App Managed Node，独立目录）、`dependencies/dsh/`（harness 发行版）、
+`runtime/versions/` + `current.json`/`previous.json`（Runtime 多版本与回滚结构，Phase 1 启用）、
 `data/dsh/`（harness 用户数据）、`logs/`、`.store.dat`（桌面设置）。
+
+## 仓库结构
+
+pnpm Monorepo，目录与 `deepseek-harness-desktop-macos-arm64-design.md`（见 `docs/`）对齐：
+
+```text
+apps/desktop/                    Tauri 桌面应用（前端 + Rust 后端）
+packages/                        Extension Pack（harness-adapter / dsh-theme / dsh-ui / dsh-tools / dsh-integrations / dsh-desktop-bundle）
+runtime/                         Harness Runtime 构建工程（Phase 4）
+updater/                         发布通道 stable / beta / dev（Phase 4）
+tests/                           测试（desktop / runtime / integration / e2e）
+scripts/                         仓库级辅助脚本
+.github/workflows/               CI/CD 流水线（Phase 4/6）
+```
 
 ## 目录说明
 
 ```text
-src/                    React 前端（状态机、侧边栏、i18n）
-src-tauri/src/bridge/   invoke 命令（cmd.rs）
-src-tauri/src/config/   常量 / 运行时路径 / 设置（store）
-src-tauri/src/service/  download 安装器 + workflow 进程生命周期
-src-tauri/src/task/     定时检测 dsh 服务状态
-src-tauri/src/logger/   简易日志系统（SimpleLogger）
-docs/PKG-CONTRACT.md    deepseek-harness-pkg 发布契约
-public/favicon.svg     应用图标源（黑标白底圆角，pnpm icons 生成）
+apps/desktop/src/                    React 前端（状态机、侧边栏、i18n）
+apps/desktop/src-tauri/src/bridge/   invoke 命令（cmd.rs）
+apps/desktop/src-tauri/src/config/   常量 / 运行时路径 / 设置（store）
+apps/desktop/src-tauri/src/process/  Harness 进程生命周期（原 service/workflow）
+apps/desktop/src-tauri/src/health/   定时检测 dsh 服务状态（原 task/tick_check_dsh_process）
+apps/desktop/src-tauri/src/node/     Managed Node 运行时（占位，Phase 2 落地）
+apps/desktop/src-tauri/src/service/  download 安装器 + scheduler
+apps/desktop/src-tauri/src/logger/   简易日志系统（SimpleLogger）
+apps/desktop/public/favicon.svg      应用图标源（黑标白底圆角，pnpm icons 生成）
+docs/PKG-CONTRACT.md                 deepseek-harness-pkg 发布契约
 ```
 
 > 后端目录与文件命名对齐早期依赖 n8n 的

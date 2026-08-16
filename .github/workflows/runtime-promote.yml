@@ -1,0 +1,65 @@
+# Runtime 通道提升（设计文档 §9 / §26）：dev → beta → stable
+# 规则：官方发布 → dev（自动）→ beta（自动测试通过）→ stable（人工确认 / soak）
+name: runtime-promote
+
+on:
+  workflow_dispatch:
+    inputs:
+      from:
+        description: "源通道"
+        required: true
+        default: "dev"
+        type: choice
+        options: [dev, beta]
+      to:
+        description: "目标通道（必须高于 from）"
+        required: true
+        default: "beta"
+        type: choice
+        options: [beta, stable]
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: 校验提升方向
+        run: |
+          ORDER='dev beta stable'
+          FROM_POS=$(echo $ORDER | tr ' ' '\n' | grep -n '^${{ inputs.from }}$' | cut -d: -f1)
+          TO_POS=$(echo $ORDER | tr ' ' '\n' | grep -n '^${{ inputs.to }}$' | cut -d: -f1)
+          if [[ -z "$FROM_POS" || -z "$TO_POS" || "$FROM_POS" -ge "$TO_POS" ]]; then
+            echo "非法提升方向: ${{ inputs.from }} → ${{ inputs.to }}" >&2
+            exit 1
+          fi
+
+      - name: 从源通道 manifest 生成目标通道文件
+        run: |
+          SRC="updater/channels/${{ inputs.from }}.json"
+          DST="updater/channels/${{ inputs.to }}.json"
+          node -e "
+            const fs = require('node:fs');
+            const m = JSON.parse(fs.readFileSync('$SRC', 'utf8'));
+            if (!m.runtimeVersion) throw new Error('$SRC 为空（先跑 runtime-build）');
+            m.channel = '${{ inputs.to }}';
+            m.publishedAt = new Date().toISOString();
+            fs.writeFileSync('$DST', JSON.stringify(m, null, 2) + '\n');
+          "
+          echo "promoted ${{ inputs.from }} → ${{ inputs.to }}: runtime ${{ env.RUNTIME_VERSION || '' }}"
+          cat "$DST"
+
+      - name: 提交通道变更
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add updater/channels
+          git commit -m "chore(updater): promote ${{ inputs.from }} → ${{ inputs.to }}"
+          git push

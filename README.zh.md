@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://github.com/hairyf/deepseek-harness-desktop">
+  <a href="https://github.com/tfcup/deepseek-harness-desktop">
     <img src="public/favicon.svg" width="112" alt="DeepSeek Harness Desktop" />
   </a>
 </p>
@@ -12,12 +12,12 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/version-0.1.9-4D6BFE?style=flat-square" alt="version 0.1.9" />
-  <img src="https://img.shields.io/github/v/release/hairyf/deepseek-harness-desktop?style=flat-square" alt="latest release" />
-  <img src="https://img.shields.io/github/downloads/hairyf/deepseek-harness-desktop/total?style=flat-square" alt="downloads" />
-  <img src="https://img.shields.io/github/stars/hairyf/deepseek-harness-desktop?style=flat-square" alt="GitHub stars" />
-  <img src="https://img.shields.io/github/license/hairyf/deepseek-harness-desktop?style=flat-square" alt="MIT license" />
+  <img src="https://img.shields.io/github/v/release/tfcup/deepseek-harness-desktop?style=flat-square" alt="latest release" />
+  <img src="https://img.shields.io/github/downloads/tfcup/deepseek-harness-desktop/total?style=flat-square" alt="downloads" />
+  <img src="https://img.shields.io/github/stars/tfcup/deepseek-harness-desktop?style=flat-square" alt="GitHub stars" />
+  <img src="https://img.shields.io/github/license/tfcup/deepseek-harness-desktop?style=flat-square" alt="MIT license" />
   <img src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white" alt="Tauri 2" />
-  <img src="https://img.shields.io/badge/Windows%20%7C%20macOS%20%7C%20Linux-black?style=flat-square" alt="Windows | macOS | Linux" />
+  <img src="https://img.shields.io/badge/macOS%20ARM64-black?style=flat-square&logo=apple&logoColor=white" alt="Windows | macOS | Linux" />
 </p>
 
 <p align="center">
@@ -44,20 +44,21 @@
 
 ## 快速开始
 
-1. 在 [Releases](https://github.com/hairyf/deepseek-harness-desktop/releases) 页面下载对应平台的安装包；
-2. 安装并启动应用；
-3. 首次运行会自动安装依赖：若检测到本机已安装版本兼容的 Node.js（v22.15.0+ / v23.8.0+）则直接复用，否则自动下载 Node.js 运行时与 Harness 发行包（合计约几百 MB）；就绪后内嵌的 Harness 界面会打开在 `http://127.0.0.1:3080`。
+1. 在 [Releases](https://github.com/tfcup/deepseek-harness-desktop/releases) 页面下载 `DeepseekDesktop_<版本>_arm64.dmg`；
+2. 打开 DMG，把应用拖入 Applications；
+3. **首次打开**：应用以**未签名**形式分发（未接入 Apple Developer 签名），macOS Gatekeeper 首次会拦截，任选其一放行：
+   - **右键点击应用 → 打开 → 再点打开**（仅首次）；或
+   - 终端执行一次：`xattr -dr com.apple.quarantine /Applications/Deepseek\ Harness\ Desktop.app`
+4. 应用**离线开箱即用**（方案 B）：DMG 内置基线 Node.js 运行时与 Baseline Harness Runtime，首启自动种入，无需联网下载；就绪后内嵌 Harness 界面打开在 `http://127.0.0.1:3080`。
 
-> 首次运行需要联网；之后一切都在本地完成。安装完成后，再次启动会跳过安装引导直接进入 Harness，并在后台静默检查新版，发现新版时弹出更新提示。
+> 一切都在本地完成。**Runtime 更新**（Harness + Extension Pack）走内置 Runtime Manager，**不涉及 macOS 签名**，有新版时静默提示；**桌面端自动更新**依赖 Apple 签名，未签名分发下不可用，发布新版时手动下载 DMG 即可。
 
 **系统要求**
 
-- Windows 10+（64 位）
-- macOS 10.15+
-- Linux（支持 AppImage 的主流发行版）
-- 首次运行需要网络
+- macOS 11+（仅 Apple Silicon / arm64）
+- 无需任何开发工具（Node.js / Rust / pnpm 均不需要）
 
-应用默认捆绑 Node.js **v22.22.0 LTS**（满足 Harness 的 **v22.15.0+ 或 v23.8.0+** 要求）。首次启动时会优先检测本机的 Node.js 环境：只要版本兼容就直接复用本地 Node，跳过运行时的下载与安装。
+应用始终使用 **App 托管的 Node.js v22.22.0 LTS** 运行时（安装于应用数据目录，满足 Harness 的 **v22.15.0+ 或 v23.8.0+** 要求）。不依赖系统 Node.js / Homebrew / nvm，保证所有用户环境一致。
 
 ## 开发与构建
 
@@ -71,7 +72,7 @@
 ### 本地开发
 
 ```bash
-git clone https://github.com/hairyf/deepseek-harness-desktop.git
+git clone https://github.com/tfcup/deepseek-harness-desktop.git
 cd deepseek-harness-desktop
 pnpm install
 pnpm tauri dev
@@ -120,16 +121,14 @@ pnpm icons
 
 ## 数据目录
 
-数据目录由 Tauri 的 bundle identifier（`io.github.hairyf.deepseek-harness-desktop`）决定：
+数据目录由 Tauri 的 bundle identifier（`io.github.tfcup.deepseek-harness-desktop`）决定：
 
-- Windows：`%APPDATA%\io.github.hairyf.deepseek-harness-desktop\`
-- macOS：`~/Library/Application Support/io.github.hairyf.deepseek-harness-desktop/`
-- Linux：`~/.local/share/io.github.hairyf.deepseek-harness-desktop/`
+- macOS：`~/Library/Application Support/io.github.tfcup.deepseek-harness-desktop/`
 
 包含：
 
-- `runtime/`：Node.js 运行时
-- `dependencies/dsh/`：Harness 发行版（zip 解压）
+- `node/`：App 托管的 Node.js 运行时
+- `runtime/versions/<v>/`：版本化 Harness Runtime
 - `data/dsh/`：Harness 用户数据（`$DSH_HOME`，含 profile、会话、设置）
 - `logs/`：应用与 dsh 服务日志
 - `.store.dat`：桌面端配置（端口、自启动、语言）

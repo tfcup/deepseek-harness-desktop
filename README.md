@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://github.com/hairyf/deepseek-harness-desktop">
+  <a href="https://github.com/tfcup/deepseek-harness-desktop">
     <img src="public/favicon.svg" width="120" alt="DeepSeek Harness Desktop" />
   </a>
 </p>
@@ -12,12 +12,12 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/version-0.1.9-4D6BFE?style=flat-square" alt="version 0.1.9" />
-  <img src="https://img.shields.io/github/v/release/hairyf/deepseek-harness-desktop?style=flat-square" alt="latest release" />
-  <img src="https://img.shields.io/github/downloads/hairyf/deepseek-harness-desktop/total?style=flat-square" alt="downloads" />
-  <img src="https://img.shields.io/github/stars/hairyf/deepseek-harness-desktop?style=flat-square" alt="GitHub stars" />
-  <img src="https://img.shields.io/github/license/hairyf/deepseek-harness-desktop?style=flat-square" alt="MIT license" />
+  <img src="https://img.shields.io/github/v/release/tfcup/deepseek-harness-desktop?style=flat-square" alt="latest release" />
+  <img src="https://img.shields.io/github/downloads/tfcup/deepseek-harness-desktop/total?style=flat-square" alt="downloads" />
+  <img src="https://img.shields.io/github/stars/tfcup/deepseek-harness-desktop?style=flat-square" alt="GitHub stars" />
+  <img src="https://img.shields.io/github/license/tfcup/deepseek-harness-desktop?style=flat-square" alt="MIT license" />
   <img src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white" alt="Tauri 2" />
-  <img src="https://img.shields.io/badge/Windows%20%7C%20macOS%20%7C%20Linux-black?style=flat-square" alt="Windows | macOS | Linux" />
+  <img src="https://img.shields.io/badge/macOS%20ARM64-black?style=flat-square&logo=apple&logoColor=white" alt="Windows | macOS | Linux" />
 </p>
 
 <p align="center">
@@ -44,20 +44,21 @@
 
 ## Quick Start
 
-1. Download the installer for your platform from the [Releases](https://github.com/hairyf/deepseek-harness-desktop/releases) page.
-2. Install and launch the app.
-3. On the first run the app installs its dependencies: if a compatible Node.js (v22.15.0+ / v23.8.0+) is already on your machine it is reused as-is; otherwise the Node.js runtime and the prebuilt Harness bundle are downloaded (a few hundred MB in total). When setup finishes, the embedded Harness UI opens at `http://127.0.0.1:3080`.
+1. Download `DeepseekDesktop_<version>_arm64.dmg` from the [Releases](https://github.com/tfcup/deepseek-harness-desktop/releases) page.
+2. Open the DMG and drag the app into Applications.
+3. **First launch**: the app is distributed **unsigned** (no Apple Developer signing), so macOS Gatekeeper will warn the first time. Open it with:
+   - **Right-click** the app → **Open** → **Open** (once), or
+   - run once in Terminal: `xattr -dr com.apple.quarantine /Applications/Deepseek\ Harness\ Desktop.app`
+4. The app starts **offline-ready**（方案 B）: the baseline Node.js runtime and Harness Runtime are bundled in the DMG and seeded on first launch — no downloads needed. The embedded Harness UI opens at `http://127.0.0.1:3080`.
 
-> First run requires a network connection. Everything after that runs locally. Once installed, later launches skip the setup screens and boot straight into the harness; a silent prompt appears when a newer Harness release is available.
+> Everything runs locally. Runtime (Harness + Extension Pack) updates happen through the built-in Runtime Manager (no macOS signing involved) — a silent prompt appears when a newer Harness release is available. Desktop auto-update requires Apple signing and is therefore disabled in this unsigned distribution; update the DMG manually when a new release is published.
 
 ### Requirements
 
-- Windows 10+ (64-bit)
-- macOS 10.15+
-- Linux (mainstream distributions that support AppImage)
-- Network on first launch
+- macOS 11+ (Apple Silicon / arm64 only)
+- No developer tools, Node.js, Rust or pnpm required
 
-The app bundles Node.js **v22.22.0 LTS**, which satisfies the Harness requirement of **v22.15.0+ or v23.8.0+**. On first launch it first checks for a local Node.js installation: any compatible version is reused directly and the bundled runtime download is skipped.
+The app always uses its **app-managed Node.js v22.22.0 LTS** runtime (installed to the app data directory), which satisfies the Harness requirement of **v22.15.0+ or v23.8.0+**. System Node.js / Homebrew / nvm are never used, so every user environment is identical.
 
 ## Development
 
@@ -71,7 +72,7 @@ The app bundles Node.js **v22.22.0 LTS**, which satisfies the Harness requiremen
 ### Run in dev mode
 
 ```bash
-git clone https://github.com/hairyf/deepseek-harness-desktop.git
+git clone https://github.com/tfcup/deepseek-harness-desktop.git
 cd deepseek-harness-desktop
 pnpm install
 pnpm tauri dev
@@ -120,16 +121,14 @@ pnpm icons
 
 ## Data Directory
 
-The data directory follows the Tauri bundle identifier (`io.github.hairyf.deepseek-harness-desktop`):
+The data directory follows the Tauri bundle identifier (`io.github.tfcup.deepseek-harness-desktop`):
 
-- Windows: `%APPDATA%\io.github.hairyf.deepseek-harness-desktop\`
-- macOS: `~/Library/Application Support/io.github.hairyf.deepseek-harness-desktop/`
-- Linux: `~/.local/share/io.github.hairyf.deepseek-harness-desktop/`
+- macOS: `~/Library/Application Support/io.github.tfcup.deepseek-harness-desktop/`
 
 It contains:
 
-- `runtime/` — bundled Node.js runtime
-- `dependencies/dsh/` — extracted Harness bundle
+- `node/` — app-managed Node.js runtime
+- `runtime/versions/<v>/` — versioned Harness Runtime
 - `data/dsh/` — Harness user data (`$DSH_HOME`: profiles, sessions, settings)
 - `logs/` — app and dsh service logs
 - `.store.dat` — desktop settings (port, auto-start, language)

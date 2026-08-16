@@ -1,0 +1,11 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# 显式优先链接 workspace 包（避免叶子包名与公共 npm 包撞车时解析到 registry）
+link-workspace-packages: true
+prefer-workspace-packages: true
+
+allowBuilds:
+  "@tailwindcss/oxide": true
+  esbuild: true

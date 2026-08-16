@@ -1,0 +1,24 @@
+{
+  "name": "dsh-theme",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Theme extension for DeepSeek Harness Desktop — registers third-party themes (dark/light) via the official ctx.theme extension point (design doc Layer 3 / dsh-client mechanism).",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [],
+      "platform": "web",
+      "immediately": true
+    }
+  }
+}

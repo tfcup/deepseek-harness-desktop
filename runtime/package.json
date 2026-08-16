@@ -1,0 +1,13 @@
+{
+  "name": "deepseek-harness-runtime",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Harness Runtime builder — pins @deepseek-ai/dsh, bundles the Extension Pack, runs the Compatibility Gate, produces versioned runtime zips + manifest (design doc runtime).",
+  "scripts": {
+    "detect-upstream": "node scripts/detect-upstream.ts",
+    "build": "node scripts/build-runtime.ts",
+    "verify": "node scripts/verify-runtime.ts",
+    "publish": "node scripts/publish-runtime.ts"
+  }
+}

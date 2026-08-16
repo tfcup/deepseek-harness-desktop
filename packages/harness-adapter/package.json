@@ -1,0 +1,16 @@
+{
+  "name": "harness-adapter",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Compatibility Adapter — Anti-Corruption Layer isolating DeepSeek Harness API changes from the Extension Pack (design doc Layer 2).",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "verify": "node scripts/verify-layout.ts",
+    "verify:client-plugin": "node scripts/verify-client-plugin.ts",
+    "verify:theme-logic": "node scripts/verify-theme-logic.ts"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

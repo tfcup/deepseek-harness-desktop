@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "channel": "stable",
+  "runtimeVersion": "",
+  "harnessVersion": "",
+  "extensionVersion": "",
+  "nodeVersion": "",
+  "platform": "darwin",
+  "arch": "arm64",
+  "url": "",
+  "sha256": "",
+  "minimumDesktopVersion": "0.1.0",
+  "publishedAt": ""
+}

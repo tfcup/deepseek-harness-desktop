@@ -1,0 +1,14 @@
+{
+  "name": "dsh-tools",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Custom tools for DeepSeek Harness Desktop — registers tools via the official ctx.tools.register (design doc Layer 3 / host bundle).",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  }
+}

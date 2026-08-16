@@ -1,0 +1,88 @@
+# Runtime 构建 + Compatibility Gate（设计文档 §8 / §11 / §12）：固定 Harness 版本、
+# 捆绑 Extension Pack、构建 zip、验证、发布 dev channel + GitHub Release（tag runtime-<v>）
+name: runtime-build
+
+on:
+  workflow_dispatch:
+    inputs:
+      harness_version:
+        description: "@deepseek-ai/dsh 版本（如 0.1.0-rc.6，留空则安装 latest）"
+        required: false
+        default: ""
+      channel:
+        description: "发布通道"
+        required: false
+        default: "dev"
+        type: choice
+        options: [dev, beta, stable]
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-verify:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: 固定 @deepseek-ai/dsh 版本并安装到基座
+        run: |
+          mkdir -p runtime/.dsh-base
+          cd runtime/.dsh-base
+          echo '{"name":"dsh-base","private":true,"dependencies":{"@deepseek-ai/dsh":"${{ inputs.harness_version || 'latest' }}"}}' > package.json
+          pnpm install
+          echo "DSH_BASE_DIR=$PWD/node_modules/@deepseek-ai/dsh" >> "$GITHUB_ENV"
+
+      - name: 构建 Runtime（zip + sha256 + manifest）
+        run: |
+          OUT=$(node runtime/scripts/build-runtime.ts --channel ${{ inputs.channel }} --dsh-base "$DSH_BASE_DIR")
+          echo "$OUT"
+          echo "STAGING_DIR=$(echo "$OUT" | grep '^STAGING=' | cut -d= -f2)" >> "$GITHUB_ENV"
+          VERSION=$(echo "$OUT" | grep '^\[build\] runtimeVersion=' | sed -E 's/.*runtimeVersion=([0-9.]+).*/\1/')
+          echo "RUNTIME_VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Compatibility Gate（全新 DSH_HOME：扩展加载 → 启动 → 引导图 → client.js）
+        run: node runtime/scripts/verify-runtime.ts --runtime "$STAGING_DIR"
+
+      - name: 上传产物（zip + sha256 + manifest）
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-dist
+          path: |
+            runtime/dist/*.zip
+            runtime/dist/*.sha256
+            runtime/dist/manifest-*.json
+          retention-days: 14
+
+      - name: 发布到 channel（updater/channels/<channel>.json）
+        run: |
+          MANIFEST=$(ls runtime/dist/manifest-*.json | head -1)
+          node runtime/scripts/publish-runtime.ts --channel ${{ inputs.channel }} --manifest "$MANIFEST"
+          if [[ -n "$(git status --porcelain updater/channels)" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add updater/channels
+            git commit -m "chore(updater): publish ${{ inputs.channel }} channel runtime ${{ env.RUNTIME_VERSION }}"
+            git push
+          fi
+
+      - name: 创建 GitHub Release（tag runtime-${{ env.RUNTIME_VERSION }}）
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: runtime-${{ env.RUNTIME_VERSION }}
+          name: "Harness Runtime ${{ env.RUNTIME_VERSION }}"
+          files: |
+            runtime/dist/*.zip
+            runtime/dist/*.sha256
+            runtime/dist/manifest-*.json
+          draft: false
+          prerelease: ${{ inputs.channel != 'stable' }}

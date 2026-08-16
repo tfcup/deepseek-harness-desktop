@@ -1,0 +1,132 @@
+# Desktop 发布（设计文档 §20 / §21 / §23）：方案 B（内置 Baseline Runtime）+ 签名 + 公证 + 更新清单
+# 触发：git tag v<version>（或手动 workflow_dispatch）
+name: desktop-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "发布版本（如 1.2.3，需与 apps/desktop/package.json 一致）"
+        required: true
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-14
+    env:
+      RAW_VERSION: ${{ github.event.inputs.version || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 计算版本号（去 v 前缀）
+        run: echo "VERSION=${RAW_VERSION#v}" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      # ---------- 方案 B：Baseline 资源（Node + Baseline Runtime） ----------
+      - name: 准备基线 Node（darwin-arm64 v22.22.0）
+        run: |
+          mkdir -p apps/desktop/src-tauri/resources/baseline
+          curl -fsSL -o apps/desktop/src-tauri/resources/baseline/node.tar.gz \
+            https://nodejs.org/dist/v22.22.0/node-v22.22.0-darwin-arm64.tar.gz
+
+      - name: 准备 Baseline Runtime（固定 dsh + Extension Pack → zip）
+        run: |
+          mkdir -p runtime/.dsh-base
+          cd runtime/.dsh-base
+          echo '{"name":"dsh-base","private":true,"dependencies":{"@deepseek-ai/dsh":"latest"}}' > package.json
+          pnpm install
+          DSH_BASE_DIR="$PWD/node_modules/@deepseek-ai/dsh" \
+            node ../scripts/build-runtime.ts --channel dev --out ../dist
+          cp ../dist/runtime-*-arm64.zip ../../apps/desktop/src-tauri/resources/baseline/runtime.zip
+        shell: bash
+
+      # ---------- 签名与公证 ----------
+      - name: 导入 Developer ID 证书到 Keychain
+        if: ${{ secrets.DEVELOPER_ID_CERT_P12 != '' }}
+        env:
+          P12_B64: ${{ secrets.DEVELOPER_ID_CERT_P12 }}
+          P12_PASSWORD: ${{ secrets.CERT_PASSWORD }}
+        run: |
+          echo "$P12_B64" | base64 --decode > /tmp/developer-id.p12
+          security create-keychain -p "${{ secrets.KEYCHAIN_PASSWORD }}" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "${{ secrets.KEYCHAIN_PASSWORD }}" build.keychain
+          security import /tmp/developer-id.p12 -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k build.keychain
+          security set-key-partition-list -S apple-tool:,apple: -s -k "${{ secrets.KEYCHAIN_PASSWORD }}" build.keychain
+          security list-keychains -d user -s build.keychain
+
+      - name: 构建签名 DMG + App（updater 产物 .app.tar.gz）
+        env:
+          TAURI_SIGNING_IDENTITY: ${{ secrets.TAURI_SIGNING_IDENTITY || 'Developer ID Application' }}
+        run: |
+          cd apps/desktop
+          pnpm tauri build --target aarch64-apple-darwin
+
+      - name: 校验代码签名
+        run: |
+          APP=$(find apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle -name "*.app" -maxdepth 3 | head -1)
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
+      - name: 公证（notarytool submit + staple + spctl 门禁）
+        if: ${{ secrets.APPLE_ID != '' }}
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          DMG=$(find apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -name "*.dmg" | head -1)
+          xcrun notarytool submit --wait --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" "$DMG"
+          xcrun stapler staple "$DMG"
+          spctl -a -vv --type install "$DMG"
+
+      # ---------- Desktop Update 清单（§18） ----------
+      # 无签名分发（默认）：不生成 updater 产物，桌面自动更新不可用（README 已说明）
+      - name: 生成 latest.json + 签名
+        if: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          mkdir -p updater/dist
+          APP_TAR=$(find apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle -name "*.app.tar.gz" | head -1)
+          if [[ -z "$APP_TAR" ]]; then echo "未找到 .app.tar.gz（updater 产物）"; exit 1; fi
+          pnpm --filter deepseek-harness-desktop exec tauri signer sign \
+            -f "$APP_TAR" > updater/dist/app.tar.gz.sig
+          node updater/scripts/generate-updater-json.ts \
+            --version "$VERSION" \
+            --url "https://github.com/${{ github.repository }}/releases/download/v$VERSION/$(basename $APP_TAR)" \
+            --signature-file updater/dist/app.tar.gz.sig \
+            --out updater/dist/latest.json
+
+      - name: 产物重命名（DeepseekDesktop_<version>_arm64.dmg）
+        run: |
+          DMG=$(find apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -name "*.dmg" | head -1)
+          mkdir -p dist-final
+          cp "$DMG" "dist-final/DeepseekDesktop_${VERSION}_arm64.dmg"
+
+      - name: 创建 GitHub Release（tag v${{ env.VERSION }}）
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          name: "DeepSeek Harness Desktop v${{ env.VERSION }}"
+          files: |
+            dist-final/*.dmg
+            apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app.tar.gz
+            updater/dist/latest.json
+            updater/dist/app.tar.gz.sig

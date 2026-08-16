@@ -1,0 +1,14 @@
+{
+  "name": "dsh-integrations",
+  "version": "0.1.0",
+  "private": true,
+  "description": "External service integrations for DeepSeek Harness Desktop — exposes Client↔Host RPC via the official harness.handle seam (design doc Layer 3 / host bundle).",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  }
+}

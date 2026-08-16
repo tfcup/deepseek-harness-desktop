@@ -1,0 +1,60 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Deepseek Harness Desktop",
+  "version": "0.1.9",
+  "identifier": "io.github.tfcup.deepseek-harness-desktop",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Deepseek Harness Desktop",
+        "width": 1280,
+        "height": 840,
+        "minWidth": 860,
+        "minHeight": 620,
+        "resizable": true,
+        "fullscreen": false,
+        "maximized": false,
+        "decorations": false,
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost 'self' http://127.0.0.1:* ws://127.0.0.1:*; frame-src http://127.0.0.1:*; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["dmg", "app"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico",
+      "icons/icon.png"
+    ],
+    "resources": ["resources/**/*"],
+    "category": "DeveloperTool",
+    "copyright": "Copyright © 2026 deepseek-harness-desktop contributors",
+    "shortDescription": "Desktop application for DeepSeek Harness",
+    "longDescription": "A native desktop application for running DeepSeek Harness (dsh) locally with one-click install and zero configuration.",
+    "macOS": {
+      "entitlements": "./Entitlements.plist",
+      "minimumSystemVersion": "11.0"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk2OTNGMDMyQTcwMEE4ODIKUldTQ3FBQ25NdkNUbHUwQkhrYmxHS21aM3BIb3g5UlRydlVqeFQrN3FyTEJydlQ5RVQrVzQ0SEcK",
+      "endpoints": [
+        "https://github.com/tfcup/deepseek-harness-desktop/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}

@@ -1,8 +1,24 @@
+# ---- 依赖与构建产物（任何中间产物一律不入库） ----
 node_modules
-dist
-src-tauri/target
-src-tauri/gen
-src-tauri/resources/node
+dist*/
+
+# Rust / Tauri 构建产物
+apps/desktop/src-tauri/target
+apps/desktop/src-tauri/gen
+apps/desktop/src-tauri/resources/node
+apps/desktop/src-tauri/resources/baseline/
+
+# Runtime 构建中间目录（CI 的 dsh 基座安装位置）
+runtime/.dsh-base/
+
+# 前端构建缓存
+.vite/
+*.tsbuildinfo
+
+# 更新签名私钥（dev-only 密钥；生产密钥只存 CI Secrets，绝不入库）
+updater/keys/*.key
+
+# 杂项
 *.log
 .DS_Store
 .idea

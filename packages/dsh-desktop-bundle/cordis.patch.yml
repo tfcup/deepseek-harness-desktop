@@ -1,0 +1,21 @@
+# dsh-desktop-bundle —— Extension Pack 聚合 bundle（设计文档 Layer 3）
+#
+# 分层约定（Model B）：
+#   - 叶子包（dsh-theme / dsh-ui / dsh-tools / dsh-integrations）只声明自身能力
+#     （dsh.client / 宿主插件），**不自行插入行**，避免与聚合包重复 insert；
+#   - 聚合包是本仓库唯一需要加入 `dsh.profile.bundles` 的包；其 patch 统一
+#     insert 各叶子包的行。
+#
+# 加入 bundles 清单后本 patch 即生效；叶子包需在 profiles/node_modules 可解析
+# （no-pnpm 布局由 harness-adapter 复制）。
+#
+# 注意：insert 新行避免与既有行提供相同 service（实测：重复注册会启动失败）。
+- insert:
+    - id: dsh-theme
+      name: 'dsh-theme'
+    - id: dsh-ui
+      name: 'dsh-ui'
+    - id: dsh-tools
+      name: 'dsh-tools'
+    - id: dsh-integrations
+      name: 'dsh-integrations'
