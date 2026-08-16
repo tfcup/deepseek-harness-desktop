@@ -52,9 +52,12 @@
 
 1. Download the latest `DeepseekDesktop_<version>_arm64.dmg` from the [Releases](https://github.com/tfcup/deepseek-harness-desktop/releases/latest) page.
 2. Open the DMG and drag the app into Applications.
-3. **First launch**: the app is distributed **unsigned** (no Apple Developer signing), so macOS Gatekeeper will warn the first time. Open it with:
-   - **Right-click** the app → **Open** → **Open** (once), or
-   - run once in Terminal: `xattr -dr com.apple.quarantine /Applications/Deepseek\ Harness\ Desktop.app`
+3. **First launch**: the app is distributed **unsigned** (ad-hoc signed, no Apple Developer signing), so macOS Gatekeeper will block it the first time:
+   - If you see **"is damaged and can't be opened"** — the file is **not** actually damaged; that misleading message appears when an ad-hoc-signed app carries the download quarantine attribute. Clear it once in Terminal, then open:
+     ```bash
+     xattr -dr com.apple.quarantine "/Applications/Deepseek Harness Desktop.app"
+     ```
+   - Alternatively, **Right-click** the app → **Open** → **Open** (once) also works for the plain "unverified developer" warning.
 4. The app seeds the bundled Baseline Runtime and starts **offline** — the embedded Harness UI opens at `http://127.0.0.1:3080`.
 
 > Everything runs locally. Runtime (Harness + Extension Pack) updates happen in-app through the update-source URL (no macOS signing involved). Desktop auto-update requires Apple signing and is therefore disabled in this unsigned distribution; download a new DMG when a release is published.
@@ -177,6 +180,7 @@ Then download the DMG from the [Releases](https://github.com/tfcup/deepseek-harn
 ## FAQ
 
 - **Port 3080 is already in use?** The app stops whatever is listening on 3080 (LISTEN sockets only — it never touches processes that merely hold connections, e.g. a browser) and starts its own isolated instance. Change the port in the sidebar settings if you prefer.
+- **The app says "is damaged and can't be opened"?** The file is not damaged — this is Gatekeeper's message for an ad-hoc-signed app carrying the download quarantine attribute. Clear it once and reopen: `xattr -dr com.apple.quarantine "/Applications/Deepseek Harness Desktop.app"` (re-run after installing a new version).
 - **Will the app touch my CLI `dsh` data?** No. It uses its own data directory and its own `$DSH_HOME`; a running CLI dsh on 3080 is stopped rather than adopted.
 - **What happens during the first launch?** The bundled Baseline Runtime is seeded offline, extensions are installed, the service starts, and the Harness UI loads. The sidebar shows live install/service logs.
 - **Node.js not found?** Install Node.js v22.15+ / v23.8+ / v24+ (Homebrew: `brew install node`, or via nvm) and relaunch. The app does not download Node.

@@ -52,9 +52,12 @@
 
 1. 在 [Releases](https://github.com/tfcup/deepseek-harness-desktop/releases/latest) 页面下载最新的 `DeepseekDesktop_<版本>_arm64.dmg`；
 2. 打开 DMG，把应用拖入 Applications；
-3. **首次打开**：应用以**未签名**形式分发（未接入 Apple Developer 签名），macOS Gatekeeper 首次会拦截，任选其一放行：
-   - **右键点击应用 → 打开 → 再点打开**（仅首次）；或
-   - 终端执行一次：`xattr -dr com.apple.quarantine /Applications/Deepseek\ Harness\ Desktop.app`
+3. **首次打开**：应用以**未签名**形式分发（ad-hoc 签名，未接入 Apple Developer 签名），macOS Gatekeeper 首次会拦截：
+   - 若提示 **"应用程序已损坏，无法打开"**——文件**并没有损坏**，这是对"ad-hoc 签名 + 下载隔离属性"的误导性报错。在终端执行一次后重新打开即可：
+     ```bash
+     xattr -dr com.apple.quarantine "/Applications/Deepseek Harness Desktop.app"
+     ```
+   - 若提示的是普通的"无法验证开发者"，也可用 **右键点击应用 → 打开 → 再点打开**（仅首次）放行。
 4. 应用**离线开箱即用**：首启自动种入内置 Baseline Runtime 并启动服务，就绪后内嵌 Harness 界面打开在 `http://127.0.0.1:3080`。
 
 > 一切都在本地完成。**Runtime 更新**（Harness + Extension Pack）在应用内通过"更新源 URL"完成，不涉及 macOS 签名；**桌面端自动更新**依赖 Apple 签名，未签名分发下不可用，发布新版时从 Releases 手动下载 DMG 即可。
@@ -175,6 +178,7 @@ git tag v0.1.11 && git push origin v0.1.11   # 触发 desktop-release → 发布
 ## 常见问题
 
 - **3080 端口被占用？** 应用会结束 3080 端口上的监听进程（**仅 LISTEN socket**，绝不碰只持有普通连接的进程，如浏览器），再启动自己的隔离实例；也可以在侧边栏修改端口。
+- **提示"应用程序已损坏，无法打开"？** 文件并没有损坏——这是 Gatekeeper 对"ad-hoc 签名 + 下载隔离属性"的误报。执行一次 `xattr -dr com.apple.quarantine "/Applications/Deepseek Harness Desktop.app"` 后重新打开即可（安装新版本后需再执行一次）。
 - **会不会污染我 CLI dsh 的数据？** 不会。应用使用独立数据目录和独立 `$DSH_HOME`；3080 上正在运行的 CLI dsh 会被结束而非"采纳"。
 - **首次启动发生了什么？** 离线种入内置 Baseline Runtime → 安装扩展 → 启动服务 → 加载 Harness 界面；侧边栏实时展示安装/服务日志。
 - **提示找不到 Node.js？** 安装 Node.js v22.15+ / v23.8+ / v24+（Homebrew：`brew install node`，或 nvm）后重开应用。应用不下载 Node。
