@@ -42,7 +42,13 @@ function arg(name: string, fallback = ""): string {
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
 }
 
-/** 定位 dsh 基座：DSH_BASE env > --dsh-base > PATH 解析全局安装 */
+/**
+ * 定位 dsh 基座根目录：DSH_BASE env > --dsh-base > PATH 解析全局安装。
+ *
+ * 基座根 = 包含 node_modules/ 的目录（npm 全局安装根 或 pnpm install 根）。
+ * 整棵复制 node_modules（保留相对符号链接）——pnpm 布局下 @deepseek-ai/dsh 的
+ * 依赖是其同级符号链接（指向 node_modules/.pnpm），只复制包目录会丢失全部依赖。
+ */
 function resolveDshBase(): string {
   const candidates: string[] = [];
   const env = process.env.DSH_BASE ?? arg("--dsh-base");
@@ -50,16 +56,16 @@ function resolveDshBase(): string {
   try {
     const bin = execFileSync("which", ["dsh"], { encoding: "utf8" }).trim();
     if (bin) {
-      // <prefix>/global_packages/bin/dsh → <prefix>/global_packages/lib/node_modules/@deepseek-ai/dsh
-      candidates.push(join(dirname(bin), "..", "lib", "node_modules", "@deepseek-ai", "dsh"));
+      // <prefix>/global_packages/bin/dsh → <prefix>/global_packages/lib/node_modules
+      candidates.push(join(dirname(bin), "..", "lib", "node_modules"));
     }
   } catch {
     /* PATH 无 dsh */
   }
   for (const c of candidates) {
-    if (existsSync(join(c, "lib", "bin.js"))) return c;
+    if (existsSync(join(c, "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js"))) return c;
   }
-  throw new Error("无法定位 dsh 基座：设置 DSH_BASE 或确保 dsh 在 PATH（which dsh）");
+  throw new Error("无法定位 dsh 基座根：设置 DSH_BASE（含 node_modules 的目录）或确保 dsh 在 PATH");
 }
 
 function packageVersion(dir: string): string {
@@ -103,7 +109,7 @@ function main(): void {
   const outDir = arg("--out", join(RUNTIME_DIR, "dist"));
   const version = nextVersion(outDir);
   const dshBase = resolveDshBase();
-  const harnessVersion = packageVersion(dshBase);
+  const harnessVersion = packageVersion(join(dshBase, "node_modules", "@deepseek-ai", "dsh"));
   const extensionVersion = packageVersion(join(EXTENSIONS_SRC, BUNDLE_PACKAGE));
   const nodeVersion = process.env.NODE_VERSION ?? "22.22.0";
 
@@ -115,13 +121,16 @@ function main(): void {
   console.log(`[build] harness=${harnessVersion} extension=${extensionVersion} node=${nodeVersion}`);
   console.log(`[build] dsh-base=${dshBase}`);
 
-  // 1) dsh 基座（固定版本官方 Harness）
-  // dereference: pnpm 布局是符号链接树（node_modules/.pnpm），必须解引用为真实文件，
-  // 否则复制出的 runtime 基座是断链（CI 场景）
-  const dshDest = join(staging, "node_modules", "@deepseek-ai", "dsh");
-  mkdirSync(dirname(dshDest), { recursive: true });
-  cpSync(dshBase, dshDest, { recursive: true, dereference: true });
-  console.log(`[build] dsh base → ${dshDest}`);
+  // 1) dsh 基座：整棵复制 node_modules（保留相对符号链接）。
+  //    pnpm 布局下依赖是同级符号链接（指向 node_modules/.pnpm），相对链接复制后依然有效；
+  //    不可 dereference（只实体化单个包会丢失其依赖）。
+  const nmSrc = join(dshBase, "node_modules");
+  if (!existsSync(join(nmSrc, "@deepseek-ai", "dsh", "lib", "bin.js"))) {
+    throw new Error(`基座缺少 node_modules/@deepseek-ai/dsh: ${nmSrc}`);
+  }
+  const nmDest = join(staging, "node_modules");
+  cpSync(nmSrc, nmDest, { recursive: true });
+  console.log(`[build] node_modules → ${nmDest}`);
 
   // 2) 根 package.json（harness 包清单，桌面端 DSH_MANIFEST_RELATIVE=package.json）
   writeFileSync(

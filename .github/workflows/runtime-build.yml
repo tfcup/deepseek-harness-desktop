@@ -35,11 +35,15 @@ jobs:
 
       - name: 固定 @deepseek-ai/dsh 版本并安装到基座
         run: |
-          mkdir -p runtime/.dsh-base
-          cd runtime/.dsh-base
+          # 基座装到 RUNNER_TEMP（仓库外，避免 workspace 干扰）
+          mkdir -p "$RUNNER_TEMP/dsh-base"
+          cd "$RUNNER_TEMP/dsh-base"
           echo '{"name":"dsh-base","private":true,"dependencies":{"@deepseek-ai/dsh":"${{ inputs.harness_version || 'latest' }}"}}' > package.json
+          # pnpm 11 默认拒绝 postinstall；dsh 原生依赖（node-pty/koffi 等）必须构建。
+          # 注意：.npmrc 的 dangerously-allow-all-builds 键无效，必须用 pnpm-workspace.yaml。
+          printf 'packages: []\ndangerouslyAllowAllBuilds: true\n' > pnpm-workspace.yaml
           pnpm install
-          echo "DSH_BASE_DIR=$PWD/node_modules/@deepseek-ai/dsh" >> "$GITHUB_ENV"
+          echo "DSH_BASE_DIR=$RUNNER_TEMP/dsh-base" >> "$GITHUB_ENV"
 
       - name: 构建 Runtime（zip + sha256 + manifest）
         run: |

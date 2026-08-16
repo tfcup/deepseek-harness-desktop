@@ -56,9 +56,13 @@ jobs:
           mkdir -p "$RUNNER_TEMP/dsh-base"
           cd "$RUNNER_TEMP/dsh-base"
           echo '{"name":"dsh-base","private":true,"dependencies":{"@deepseek-ai/dsh":"latest"}}' > package.json
+          # pnpm 11 默认拒绝 postinstall；dsh 的原生依赖（node-pty/koffi 等）必须构建。
+          # 基座是固定官方 registry 依赖，放行全部构建脚本（比维护 allowBuilds 列表免维护）。
+          # 注意：.npmrc 的 dangerously-allow-all-builds 键无效，必须用 pnpm-workspace.yaml。
+          printf 'packages: []\ndangerouslyAllowAllBuilds: true\n' > pnpm-workspace.yaml
           pnpm install
           cd "$GITHUB_WORKSPACE"
-          OUT=$(DSH_BASE="$RUNNER_TEMP/dsh-base/node_modules/@deepseek-ai/dsh" \
+          OUT=$(DSH_BASE="$RUNNER_TEMP/dsh-base" \
             node runtime/scripts/build-runtime.ts --channel dev --out runtime/dist)
           echo "$OUT"
           echo "STAGING_DIR=$(echo "$OUT" | grep '^STAGING=' | cut -d= -f2)" >> "$GITHUB_ENV"
