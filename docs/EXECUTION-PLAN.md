@@ -1,6 +1,6 @@
 # DeepSeek Harness Desktop（macOS ARM64）执行方案
 
-> 依据 `deepseek-harness-desktop-macos-arm64-design.md` 设计文档，结合当前仓库（v0.1.10）实际代码盘点后整理。
+> 依据 `deepseek-harness-desktop-macos-arm64-design.md` 设计文档，结合当前仓库（v0.1.11）实际代码盘点后整理。
 > 原则：渐进式演进，最大化复用现有代码；官方 Harness 永远视为上游内核（NEVER MODIFY）。
 
 ---
