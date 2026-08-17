@@ -12,7 +12,7 @@
 
 <p align="center">
   <a href="https://github.com/tfcup/deepseek-harness-desktop/releases/latest">
-    <img src="https://img.shields.io/badge/version-0.1.11-4D6BFE?style=flat-square" alt="version 0.1.11" />
+    <img src="https://img.shields.io/badge/version-0.1.12-4D6BFE?style=flat-square" alt="version 0.1.12" />
     <img src="https://img.shields.io/github/v/release/tfcup/deepseek-harness-desktop?style=flat-square&label=latest%20release" alt="latest release" />
     <img src="https://img.shields.io/github/downloads/tfcup/deepseek-harness-desktop/total?style=flat-square" alt="downloads" />
   </a>
