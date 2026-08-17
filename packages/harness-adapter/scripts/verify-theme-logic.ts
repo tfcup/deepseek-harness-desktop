@@ -62,17 +62,21 @@ async function main(): Promise<void> {
   if (!entry) fail("client.js 未通过 __ModuleLoader__.load 注册（id=dsh-theme）");
   const moduleExports = entry!.factory(() => {
     throw new Error("本包不应 require 任何依赖");
-  }) as { apply: (ctx: unknown) => void };
+  }) as { apply: (ctx: unknown) => void; inject: string[] | undefined };
   if (typeof moduleExports.apply !== "function") fail("client 入口缺少 apply(ctx)");
+  if (!Array.isArray(moduleExports.inject) || !moduleExports.inject.includes("theme")) {
+    fail(`client 入口必须声明 inject: ["theme"]（Cordis 严格键，未声明访问 ctx.theme 会抛错）：${JSON.stringify(moduleExports.inject)}`);
+  }
+  console.log(`    ✓ inject 声明含 "theme"（${JSON.stringify(moduleExports.inject)}）`);
 
-  // --- stub ctx 并调用 apply ---
+  // --- stub ctx 并调用 apply（get 返回 theme 服务，模拟官方 ThemeRuntime 已就绪） ---
+  const fakeTheme = {
+    register: (d: { id: string; colorScheme: string; tokens: Record<string, string> }) =>
+      registeredThemes.push(d),
+    setTheme: (id: string) => setThemeCalls.push(id),
+  };
   const fakeCtx = {
-    get: () => null,
-    theme: {
-      register: (d: { id: string; colorScheme: string; tokens: Record<string, string> }) =>
-        registeredThemes.push(d),
-      setTheme: (id: string) => setThemeCalls.push(id),
-    },
+    get: (key: string) => (key === "theme" ? fakeTheme : null),
   };
 
   console.log("[1] apply(ctx) 注册明暗双主题…");
@@ -107,7 +111,21 @@ async function main(): Promise<void> {
   }
   console.log(`    ✓ 系统偏好 dark → setTheme(${DARK_ID})`);
 
-  console.log("\n✅ 全部通过：dsh-theme 客户端插件运行时逻辑（双主题注册 / CSS 幂等 / 自动选择）正确。");
+  console.log("[4] theme 服务不可用（ctx.get 返回 null）时不抛错、不注册、CSS 仍注入…");
+  const themesBefore = registeredThemes.length;
+  const stylesBefore = styles.length;
+  let threw = false;
+  try {
+    moduleExports.apply({ get: () => null });
+  } catch {
+    threw = true;
+  }
+  if (threw) fail("theme 服务不可用时 apply 不应抛错（降级而非崩溃）");
+  if (registeredThemes.length !== themesBefore) fail("theme 服务不可用不应注册主题");
+  if (styles.length !== stylesBefore) fail("theme 服务不可用时 CSS 注入应保持幂等（不新增、不抛错）");
+  console.log("    ✓ 不抛错、不注册主题、CSS 注入保持幂等");
+
+  console.log("\n✅ 全部通过：dsh-theme 客户端插件运行时逻辑（inject 声明 / 双主题注册 / CSS 幂等 / 自动选择 / 服务缺失降级）正确。");
 }
 
 void main();

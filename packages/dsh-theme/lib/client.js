@@ -53,7 +53,10 @@ window.__ModuleLoader__.load({
     }
 
     function themeService(ctx) {
-      return (ctx && (ctx.get ? ctx.get("theme") : null)) || (ctx && ctx.theme);
+      // 只走 ctx.get：Cordis 严格键校验下，未在 inject 声明的属性直接访问会抛
+      // "cannot get property without inject"。取不到时返回 null，由 apply 跳过
+      // 主题注册（降级不报错），绝不 fallback 到 ctx.theme。
+      return ctx && typeof ctx.get === "function" ? ctx.get("theme") : null;
     }
 
     function apply(ctx) {
@@ -79,7 +82,11 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function inject(_ctx) {}
+    // 声明注入 theme 服务：Cordis 会等官方 ThemeRuntime 就绪后再 apply，消除
+    // 加载时序竞态（此前无声明时，官方主题服务注册晚于本插件即抛
+    // "cannot get property 'theme' without inject"）。对齐官方 dsh-client-ui-theme
+    // 的 exports.inject = [...] 数组形式。
+    var inject = ["theme"];
 
     exports.apply = apply;
     exports.inject = inject;
