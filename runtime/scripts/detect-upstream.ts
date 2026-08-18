@@ -8,7 +8,8 @@
 //!   #   changed=true|false
 //!   # GitHub Actions 中写入 $GITHUB_OUTPUT（upstream_version / upstream_changed）
 //!
-//! 已知版本记录在 runtime/.known-version（提交到仓库，构建通过后由 promote 更新）。
+//! 已知版本记录在 runtime/.known-version；Runtime 通过 Compatibility Gate 并发布通道后，
+//! runtime-build workflow 才会更新该文件，因此失败构建会在下一轮定时检查中自动重试。
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";

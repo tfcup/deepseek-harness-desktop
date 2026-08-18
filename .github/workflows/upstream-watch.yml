@@ -8,6 +8,8 @@ on:
 
 permissions:
   contents: read
+  # workflow_dispatch API 需要 Actions 写权限；未显式声明时该权限为 none，会返回 403。
+  actions: write
 
 jobs:
   watch:
@@ -16,11 +18,13 @@ jobs:
       upstream_version: ${{ steps.detect.outputs.upstream_version }}
       upstream_changed: ${{ steps.detect.outputs.upstream_changed }}
     steps:
-      - uses: actions/checkout@v4
+      # v5 系列使用 Node 24，避免 GitHub Actions 的 Node 20 弃用警告。
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
+          package-manager-cache: false
 
       - name: 检测上游新版本
         id: detect
@@ -28,10 +32,12 @@ jobs:
 
       - name: 有新版 → 触发 runtime-build
         if: steps.detect.outputs.upstream_changed == 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
-            await github.rest.actions.createWorkflowDispatch({
+            // 显式选择当前 REST API 版本，避免请求继续落到已弃用的 2022-11-28 版本。
+            const response = await github.request(
+              'POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches', {
               owner: context.repo.owner,
               repo: context.repo.repo,
               workflow_id: 'runtime-build.yml',
@@ -40,5 +46,12 @@ jobs:
                 harness_version: '${{ steps.detect.outputs.upstream_version }}',
                 channel: 'dev',
               },
+              headers: {
+                'X-GitHub-Api-Version': '2026-03-10',
+              },
             })
-            console.log('dispatched runtime-build for', '${{ steps.detect.outputs.upstream_version }}')
+            console.log(
+              'dispatched runtime-build for',
+              '${{ steps.detect.outputs.upstream_version }}',
+              response.data?.html_url ?? '',
+            )

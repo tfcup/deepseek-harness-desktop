@@ -23,11 +23,13 @@ jobs:
   build-and-verify:
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      # v5 系列使用 Node 24，避免后续 Runtime 构建继续出现 Node 20 弃用警告。
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
+          package-manager-cache: false
 
       - uses: pnpm/action-setup@v4
         with:
@@ -49,7 +51,13 @@ jobs:
           echo "$OUT"
           echo "STAGING_DIR=$(echo "$OUT" | grep '^STAGING=' | cut -d= -f2)" >> "$GITHUB_ENV"
           VERSION=$(echo "$OUT" | grep '^\[build\] runtimeVersion=' | sed -E 's/.*runtimeVersion=([0-9.]+).*/\1/')
+          HARNESS_VERSION=$(echo "$OUT" | sed -nE 's/^\[build\] harness=([^ ]+).*/\1/p' | head -1)
+          if [[ -z "$HARNESS_VERSION" ]]; then
+            echo "无法从构建输出解析 Harness 版本" >&2
+            exit 1
+          fi
           echo "RUNTIME_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "HARNESS_VERSION=$HARNESS_VERSION" >> "$GITHUB_ENV"
 
       - name: Compatibility Gate（全新 DSH_HOME：扩展加载 → 启动 → 引导图 → client.js）
         run: node runtime/scripts/verify-runtime.ts --runtime "$STAGING_DIR"
@@ -68,10 +76,12 @@ jobs:
         run: |
           MANIFEST=$(ls runtime/dist/manifest-*.json | head -1)
           node runtime/scripts/publish-runtime.ts --channel ${{ inputs.channel }} --manifest "$MANIFEST"
-          if [[ -n "$(git status --porcelain updater/channels)" ]]; then
+          # 仅在 Compatibility Gate 与发布均成功后推进已知版本；失败构建会在下次定时任务重试。
+          printf '%s\n' "$HARNESS_VERSION" > runtime/.known-version
+          if [[ -n "$(git status --porcelain updater/channels runtime/.known-version)" ]]; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add updater/channels
+            git add updater/channels runtime/.known-version
             git commit -m "chore(updater): publish ${{ inputs.channel }} channel runtime ${{ env.RUNTIME_VERSION }}"
             git push
           fi
