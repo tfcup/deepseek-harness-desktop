@@ -16,7 +16,7 @@ cordis.patch.yml  # insert dsh-theme / dsh-ui / dsh-tools / dsh-integrations 宿
 | 叶子包 | 形态 | 能力 |
 |---|---|---|
 | `dsh-theme` | Client Plugin | 明暗双主题（`ctx.theme.register`）+ CSS 幂等注入 |
-| `dsh-ui` | Client Plugin | `sidebar.footer.action` 桌面设置按钮（slot 注入） |
+| `dsh-ui` | Client Plugin | 桌面设置按钮 + `settings.general.item` App 更新入口 |
 | `dsh-tools` | Host 插件 | `desktop_env` 工具（`ctx.tools.register`） |
 | `dsh-integrations` | Host 插件 | `desktop:environment` prompt 段（`ctx.systemPrompt.section`） |
 

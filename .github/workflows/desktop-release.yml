@@ -1,14 +1,15 @@
 # Desktop 发布（设计文档 §20 / §21 / §23）：方案 B（内置 Baseline Runtime）+ 签名 + 公证 + 更新清单
-# 触发：git tag v<version>（或手动 workflow_dispatch）
-# 无签名分发为默认路径（README 已说明）：未配置 Secrets 时自动跳过签名/公证/更新清单步骤。
+# 触发：git tag v<version>，或手动 workflow_dispatch（版本留空自动递增 patch）。
+# Updater 签名是发布硬门禁；Apple Developer ID 签名/公证仍按 Secrets 是否配置启用。
 name: desktop-release
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "发布版本（如 0.1.9，需与 apps/desktop/package.json 一致）"
-        required: true
+        description: "发布版本（如 0.2.0）；留空则在最新 vX.Y.Z tag 上自动加一"
+        required: false
+        default: ""
   push:
     tags:
       - "v*"
@@ -19,19 +20,32 @@ permissions:
 jobs:
   release:
     runs-on: macos-14
+    concurrency:
+      group: desktop-release
+      cancel-in-progress: false
     env:
-      RAW_VERSION: ${{ github.event.inputs.version || github.ref_name }}
       # secrets 只能在 env 中引用；step 的 if 使用这些布尔标志
       HAS_CERT: ${{ secrets.DEVELOPER_ID_CERT_P12 != '' }}
       HAS_APPLE_ID: ${{ secrets.APPLE_ID != '' }}
       HAS_SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+        with:
+          # 自动版本需要读取完整 tag；浅克隆可能错误地重复已有版本。
+          fetch-depth: 0
 
-      - name: 计算版本号（去 v 前缀）
-        run: echo "VERSION=${RAW_VERSION#v}" >> "$GITHUB_ENV"
+      - name: 解析发布版本（手动值优先，空值自动递增 patch）
+        env:
+          REQUESTED_VERSION: ${{ github.event_name == 'push' && github.ref_name || github.event.inputs.version }}
+        run: |
+          EXTRA_ARGS=()
+          # tag 触发时该版本自然已经存在；workflow_dispatch 手动值则必须高于最新 tag。
+          if [[ "${{ github.event_name }}" == "push" ]]; then EXTRA_ARGS+=(--allow-existing); fi
+          VERSION=$(node updater/scripts/resolve-desktop-version.mjs "$REQUESTED_VERSION" "${EXTRA_ARGS[@]}")
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "desktop release version: $VERSION"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
 
@@ -42,6 +56,13 @@ jobs:
 
       - name: 安装依赖
         run: pnpm install --frozen-lockfile
+
+      - name: 校验 Updater 签名密钥
+        run: |
+          if [[ "$HAS_SIGNING_KEY" != "true" ]]; then
+            echo "缺少 TAURI_SIGNING_PRIVATE_KEY，不能生成可供 App 自动更新的 Release" >&2
+            exit 1
+          fi
 
       # ---------- 方案 B：Baseline Runtime（§15 修订：Node 不内置，使用本机 Node） ----------
       - name: 准备 Baseline Runtime（固定 dsh + Extension Pack → zip）
@@ -86,9 +107,12 @@ jobs:
       - name: 构建签名 DMG + App（updater 产物 .app.tar.gz）
         env:
           TAURI_SIGNING_IDENTITY: ${{ secrets.TAURI_SIGNING_IDENTITY || 'Developer ID Application' }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           cd apps/desktop
-          pnpm tauri build --target aarch64-apple-darwin
+          # 只在构建配置中覆盖版本，避免 Release workflow 自动提交版本文件。
+          pnpm tauri build --target aarch64-apple-darwin --config "{\"version\":\"${VERSION}\"}"
 
       - name: 校验代码签名
         if: ${{ env.HAS_CERT == 'true' }}
@@ -109,43 +133,53 @@ jobs:
           xcrun stapler staple "$DMG"
           spctl -a -vv --type install "$DMG"
 
-      - name: 产物重命名（DeepseekDesktop_<version>_arm64.dmg）
+      - name: 规范化发布产物名称
         run: |
           DMG=$(find apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -name "*.dmg" | head -1)
+          APP_TAR=$(find apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle -name "*.app.tar.gz" | head -1)
+          if [[ -z "$APP_TAR" || ! -s "${APP_TAR}.sig" ]]; then
+            echo "缺少 Tauri Updater 的 .app.tar.gz 或 .sig 产物" >&2
+            exit 1
+          fi
           mkdir -p dist-final
           cp "$DMG" "dist-final/DeepseekDesktop_${VERSION}_arm64.dmg"
+          cp "$APP_TAR" "dist-final/DeepseekDesktop_${VERSION}_arm64.app.tar.gz"
+          cp "${APP_TAR}.sig" "dist-final/DeepseekDesktop_${VERSION}_arm64.app.tar.gz.sig"
 
-      - name: 创建 GitHub Release（tag v${{ env.VERSION }}，无签名路径仅上传 DMG）
+      # ---------- Desktop Update 清单（§18） ----------
+      - name: 校验并生成 latest.json
+        run: |
+          mkdir -p updater/dist
+          APP_TAR="dist-final/DeepseekDesktop_${VERSION}_arm64.app.tar.gz"
+          SIGNATURE_FILE="${APP_TAR}.sig"
+          node updater/scripts/generate-updater-json.ts \
+            --version "$VERSION" \
+            --url "https://github.com/${{ github.repository }}/releases/download/v$VERSION/$(basename $APP_TAR)" \
+            --signature-file "$SIGNATURE_FILE" \
+            --out updater/dist/latest.json
+
+      - name: 创建 GitHub Release（DMG + Updater 完整产物）
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.VERSION }}
           name: "DeepSeek Harness Desktop v${{ env.VERSION }}"
-          files: dist-final/*.dmg
-
-      # ---------- Desktop Update 清单（§18；仅配置了签名密钥时启用） ----------
-      - name: 生成 latest.json + 签名并补充上传
-        if: ${{ env.HAS_SIGNING_KEY == 'true' }}
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: |
-          mkdir -p updater/dist
-          APP_TAR=$(find apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle -name "*.app.tar.gz" | head -1)
-          if [[ -z "$APP_TAR" ]]; then echo "未找到 .app.tar.gz（updater 产物）"; exit 1; fi
-          pnpm --filter deepseek-harness-desktop exec tauri signer sign \
-            -f "$APP_TAR" > updater/dist/app.tar.gz.sig
-          node updater/scripts/generate-updater-json.ts \
-            --version "$VERSION" \
-            --url "https://github.com/${{ github.repository }}/releases/download/v$VERSION/$(basename $APP_TAR)" \
-            --signature-file updater/dist/app.tar.gz.sig \
-            --out updater/dist/latest.json
-
-      - name: 更新 Release 附加 updater 产物
-        if: ${{ env.HAS_SIGNING_KEY == 'true' }}
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ env.VERSION }}
           files: |
-            apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app.tar.gz
+            dist-final/*.dmg
+            dist-final/*.app.tar.gz
+            dist-final/*.app.tar.gz.sig
             updater/dist/latest.json
-            updater/dist/app.tar.gz.sig
+
+      - name: 更新固定的 Desktop Updater 清单入口
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # 仓库同时发布 runtime-*，不能使用 releases/latest 作为 Desktop endpoint。
+          # 固定 tag 只承载可覆盖的 latest.json，清单中的二进制仍指向不可变的版本 Release。
+          if ! gh release view desktop-updater >/dev/null 2>&1; then
+            gh release create desktop-updater \
+              --target "$GITHUB_SHA" \
+              --title "Desktop Updater Manifest" \
+              --notes "Stable manifest endpoint used by the in-app Tauri updater." \
+              --prerelease
+          fi
+          gh release upload desktop-updater updater/dist/latest.json --clobber

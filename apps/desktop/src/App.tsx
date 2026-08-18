@@ -7,6 +7,7 @@ import SidebarPanel, { SidebarBusyAction } from "./components/SidebarPanel";
 import { useI18n } from "./i18n/context";
 import { generateTimestampedUrl } from "./hooks/useAutoSync";
 import { useDshTheme } from "./hooks/useDshTheme";
+import { useDesktopUpdaterBridge } from "./hooks/useDesktopUpdaterBridge";
 
 const MAX_RETRIES = 8;
 
@@ -72,8 +73,10 @@ export default function App() {
 
   const bootToken = useRef(0);
   const bootStartedRef = useRef(false);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const iframeSrc = useMemo(() => generateTimestampedUrl(serviceUrl), [serviceUrl]);
+  useDesktopUpdaterBridge({ iframeRef, serviceUrl });
 
   const handleToggleSidebar = () => {
     setSidebarOpen((prev) => {
@@ -409,6 +412,7 @@ export default function App() {
         )}
         {serviceHealthy && (
           <iframe
+            ref={iframeRef}
             key={iframeKey}
             className="block h-full w-full border-none bg-white"
             src={iframeSrc}

@@ -1,112 +1,176 @@
-//! 行为测试：dsh-ui 客户端插件的 slot 注册逻辑（无浏览器，stub 环境）。
+//! dsh-ui 客户端插件行为测试（无浏览器，stub 环境）。
 //!
-//! 按 SKILL.md "Register Client UI" 契约验证：
-//!   1. client.js 经 __ModuleLoader__.load 注册；
-//!   2. apply(ctx) 用 ctx.get('slots') + slots.inject 等待声明，再 slots.register
-//!      注册 { name: 'sidebar.footer.action', id: 'dsh-desktop-settings' } + React 组件；
-//!   3. 组件渲染为按钮，onClick postMessage 到父窗口；
-//!   4. react 不可用时优雅降级（不注册、不抛错）。
-//!
-//! 用法：node packages/harness-adapter/scripts/verify-ui-logic.ts
+//! 验证现有桌面工具入口和新增 Harness 设置更新行都通过官方 slot 注册，
+//! 并验证设置行只发送版本化 postMessage 请求，不直接接触 Tauri API。
 
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const CLIENT_JS = join(process.cwd(), "packages", "dsh-ui", "lib", "client.js");
 
-function fail(msg: string): never {
-  console.error(`✗ ${msg}`);
+interface StubElement {
+  kind: "element";
+  type: unknown;
+  props: Record<string, unknown>;
+  children: unknown[];
+}
+
+/** 输出失败原因并终止脚本。 */
+function fail(message: string): never {
+  console.error(`✗ ${message}`);
   process.exit(1);
 }
 
-/** 简易 stub react：createElement 返回可断言的描述对象 */
+/**
+ * 提供插件所需的最小 React API；useState 直接返回“发现更新”状态，
+ * 便于在没有真实 React renderer 时断言按钮动作。
+ */
 function stubReact() {
   return {
-    createElement: (type: unknown, props: unknown, ...children: unknown[]) => ({
+    createElement: (type: unknown, props: unknown, ...children: unknown[]): StubElement => ({
       kind: "element",
       type,
-      props: props ?? {},
+      props: (props ?? {}) as Record<string, unknown>,
       children,
     }),
+    useState: () => [{
+      connected: true,
+      desktop: true,
+      phase: "available",
+      currentVersion: "0.1.13",
+      latestVersion: "0.1.14",
+      progress: 0,
+    }, () => undefined],
+    useEffect: (effect: () => void | (() => void)) => effect(),
   };
 }
 
-async function main(): Promise<void> {
-  const registrations: Array<{ name: string; id: string; component: (props?: unknown) => unknown }> = [];
-  const loaded: Array<{ id: string; factory: (req: (s: string) => unknown) => unknown }> = [];
-  const postMessages: unknown[] = [];
+/** 深度查找 stub React 元素树中第一个满足条件的节点。 */
+function findElement(value: unknown, predicate: (element: StubElement) => boolean): StubElement | null {
+  if (Array.isArray(value)) {
+    for (const child of value) {
+      const found = findElement(child, predicate);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (!value || typeof value !== "object" || (value as StubElement).kind !== "element") return null;
+  const element = value as StubElement;
+  if (predicate(element)) return element;
+  for (const child of element.children) {
+    const found = findElement(child, predicate);
+    if (found) return found;
+  }
+  return null;
+}
 
+/** 执行 slot 注册、渲染和 postMessage 协议断言。 */
+async function main(): Promise<void> {
+  const registrations: Array<{
+    name: string;
+    id: string;
+    order?: number;
+    component: (props?: Record<string, unknown>) => unknown;
+  }> = [];
+  const loaded: Array<{ id: string; factory: (request: (specifier: string) => unknown) => unknown }> = [];
+  const postMessages: unknown[] = [];
+  const messageListeners: Array<(event: unknown) => void> = [];
+
+  const parentWindow = {
+    postMessage: (message: unknown) => postMessages.push(message),
+  };
   (globalThis as unknown as Record<string, unknown>).window = {
     __ModuleLoader__: {
-      load: (o: { id: string; factory: (req: (s: string) => unknown) => unknown }) => loaded.push(o),
+      load: (entry: { id: string; factory: (request: (specifier: string) => unknown) => unknown }) => {
+        loaded.push(entry);
+      },
     },
-    parent: {
-      postMessage: (m: unknown) => postMessages.push(m),
+    parent: parentWindow,
+    addEventListener: (type: string, listener: (event: unknown) => void) => {
+      if (type === "message") messageListeners.push(listener);
     },
+    removeEventListener: () => undefined,
+  };
+  (globalThis as unknown as Record<string, unknown>).document = {
+    documentElement: { lang: "zh-CN" },
+    querySelector: () => null,
+    createElement: () => ({ dataset: {}, textContent: "" }),
+    head: { appendChild: () => undefined },
   };
 
-  // --- 加载 client.js（factory 内 require("react") 由 stub 提供） ---
   await import(pathToFileURL(CLIENT_JS).href);
-  const entry = loaded.find((e) => e.id === "dsh-ui");
+  const entry = loaded.find((candidate) => candidate.id === "dsh-ui");
   if (!entry) fail("client.js 未通过 __ModuleLoader__.load 注册（id=dsh-ui）");
 
-  const moduleExports = entry!.factory(() => stubReact()) as { apply: (ctx: unknown) => void };
-  if (typeof moduleExports.apply !== "function") fail("client 入口缺少 apply(ctx)");
+  const react = stubReact();
+  const moduleExports = entry.factory((specifier) => {
+    if (specifier === "react") return react;
+    if (specifier === "@deepseek-ai/dsh-client-ui-primitives") {
+      return {
+        IconDownloadOutline16: "download-icon",
+        IconRefreshOutline16: "refresh-icon",
+      };
+    }
+    throw new Error(`unexpected require: ${specifier}`);
+  }) as { apply: (ctx: unknown) => void };
 
-  // --- stub ctx：slots 同时提供 inject 与 register（与真实 dsh slots 服务一致） ---
-  const fakeCtx = {
+  const slots = {
+    inject: (slotName: string, callback: () => void) => {
+      if (slotName === "sidebar.footer.action" || slotName === "settings.general.item") callback();
+    },
+    register: (
+      definition: { name: string; id: string; order?: number },
+      component: (props?: Record<string, unknown>) => unknown,
+    ) => registrations.push({ ...definition, component }),
+  };
+  const context = {
     get: (key: string) => {
-      if (key === "slots") {
-        return {
-          inject: (slotName: string, cb: () => void) => {
-            if (slotName === "sidebar.footer.action") cb();
-          },
-          register: (
-            def: { name: string; id: string },
-            component: (props?: unknown) => unknown,
-          ) => registrations.push({ ...def, component }),
-        };
-      }
+      if (key === "slots") return slots;
+      if (key === "locale") return { register: () => () => undefined };
       return null;
     },
+    effect: (effect: () => unknown) => effect(),
   };
 
-  console.log("[1] apply(ctx) 经 slots.inject → slots.register…");
-  moduleExports.apply(fakeCtx);
-  if (registrations.length !== 1) fail(`slots.register 调用次数异常: ${registrations.length}`);
-  const reg = registrations[0];
-  if (reg.name !== "sidebar.footer.action" || reg.id !== "dsh-desktop-settings") {
-    fail(`注册目标异常: ${JSON.stringify({ name: reg.name, id: reg.id })}`);
+  console.log("[1] 注册桌面工具入口和 Harness 常规设置更新行…");
+  moduleExports.apply(context);
+  if (registrations.length !== 2) fail(`slots.register 调用次数异常: ${registrations.length}`);
+  const settingsAction = registrations.find((item) => item.name === "sidebar.footer.action");
+  const updateRow = registrations.find((item) => item.name === "settings.general.item");
+  if (!settingsAction || settingsAction.id !== "dsh-desktop-settings") fail("桌面工具入口注册异常");
+  if (!updateRow || updateRow.id !== "desktop-app-update" || updateRow.order !== 100) {
+    fail("Harness 设置更新行注册异常");
   }
-  if (typeof reg.component !== "function") fail("注册的 component 不是函数");
 
-  console.log("[2] 组件渲染为按钮 + onClick postMessage…");
-  const element = reg.component({});
-  if (
-    element.kind !== "element" ||
-    element.type !== "button" ||
-    String(element.children?.[0]).includes("桌面设置") === false
-  ) {
-    fail(`组件渲染异常: ${JSON.stringify(element).slice(0, 200)}`);
+  console.log("[2] 更新行通过版本化 postMessage 发出检查/安装请求…");
+  const row = updateRow.component({ t: (key: string) => key });
+  const installButton = findElement(row, (element) => element.type === "button");
+  if (!installButton) fail("更新行未渲染操作按钮");
+  (installButton.props.onClick as (() => void) | undefined)?.();
+  const actions = postMessages as Array<{ type?: string; action?: string }>;
+  if (!actions.some((message) => message.type === "dsh-desktop:update-request-v1" && message.action === "get-state")) {
+    fail("更新行挂载时未请求父窗口状态");
   }
-  (element.props as { onClick?: () => void }).onClick?.();
-  const posted = postMessages[0] as { type?: string } | undefined;
-  if (!posted || posted.type !== "dsh-desktop:open-settings") {
-    fail(`onClick 未 postMessage: ${JSON.stringify(posted)}`);
+  if (!actions.some((message) => message.type === "dsh-desktop:update-request-v1" && message.action === "install")) {
+    fail("发现更新时按钮未请求 install");
   }
-  console.log(`    ✓ 按钮 + onClick postMessage(${JSON.stringify(posted?.type)})`);
 
-  console.log("[3] react 不可用时优雅降级…");
-  const entry2 = loaded.find((e) => e.id === "dsh-ui")!;
-  const exportsNoReact = entry2.factory(() => {
+  console.log("[3] 原有桌面工具按钮行为保持不变…");
+  const actionElement = settingsAction.component({}) as StubElement;
+  (actionElement.props.onClick as (() => void) | undefined)?.();
+  if (!actions.some((message) => message.type === "dsh-desktop:open-settings")) {
+    fail("原有桌面工具按钮未发送 open-settings");
+  }
+
+  console.log("[4] React 不可用时优雅降级…");
+  const exportsWithoutReact = entry.factory(() => {
     throw new Error("react not available");
   }) as { apply: (ctx: unknown) => void };
   const countBefore = registrations.length;
-  exportsNoReact.apply(fakeCtx); // 不应抛错、不应注册
-  if (registrations.length !== countBefore) fail("react 缺失时不应注册 slot");
-  console.log("    ✓ react 缺失时静默跳过（无抛错、无注册）");
+  exportsWithoutReact.apply(context);
+  if (registrations.length !== countBefore) fail("React 缺失时不应注册 slot");
 
-  console.log("\n✅ 全部通过：dsh-ui slot 注册逻辑（inject→register、按钮渲染、降级）正确。");
+  console.log("\n✅ dsh-ui 设置更新行、消息协议和降级行为验证通过。");
 }
 
 void main();

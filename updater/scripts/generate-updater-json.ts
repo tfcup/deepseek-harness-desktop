@@ -3,9 +3,8 @@
 //! Tauri v2 格式：
 //!   { "version", "notes", "pub_date", "platforms": { "darwin-aarch64": { "signature", "url" } } }
 //!
-//! signature 由 tauri signer 对安装产物（.app.tar.gz）签名生成（CI 持有私钥）：
-//!   tauri signer sign -f <artifact.tar.gz> -k <private.key> [-p <password>]
-//!   # 输出追加到文件（.sig）；JSON 中取非注释的 base64 行
+//! signature 由 `bundle.createUpdaterArtifacts` 在 Tauri build 时生成（CI 持有私钥），
+//! 与 `.app.tar.gz` 同目录、文件名追加 `.sig`；JSON 中取签名的 base64 行。
 //!
 //! 用法：
 //!   node updater/scripts/generate-updater-json.ts \

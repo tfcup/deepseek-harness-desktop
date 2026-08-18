@@ -21,6 +21,12 @@ fn setup(app_handle: tauri::AppHandle) {
     // 启动进程监控（tick 检测 dsh 服务状态）
     service::scheduler::start(&app_handle);
 
+    // dsh-ui 属于桌面 App 的原生桥接层，必须优先覆盖旧 Runtime 携带的副本。
+    // 覆盖安装新版 App 后即可出现新的设置入口，同时保留全部 Harness 用户数据。
+    if let Err(e) = runtime::manager::install_bundled_desktop_ui_extension(&app_handle) {
+        log::warn!("Bundled desktop UI extension install failed: {}", e);
+    }
+
     // 存量安装迁移：纳入版本化 Runtime 布局 + 补齐 Extension Pack（均幂等）
     let migrate_app = app_handle.clone();
     tauri::async_runtime::spawn(async move {
@@ -171,6 +177,8 @@ fn builder() -> tauri::Builder<tauri::Wry> {
         .plugin(tauri_plugin_store::Builder::new().build())
         // Clipboard plugin
         .plugin(tauri_plugin_clipboard_manager::init())
+        // Process plugin：Updater 安装完成后正常重启当前 App
+        .plugin(tauri_plugin_process::init())
         // Updater plugin（§18 Desktop Update；pubkey/endpoints 来自 tauri.conf.json plugins.updater）
         .plugin(tauri_plugin_updater::Builder::new().build())
 }

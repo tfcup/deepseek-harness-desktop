@@ -7,6 +7,7 @@ apps/desktop/src-tauri/target
 apps/desktop/src-tauri/gen
 apps/desktop/src-tauri/resources/node
 apps/desktop/src-tauri/resources/baseline/
+apps/desktop/src-tauri/resources/desktop-extensions/
 
 # Runtime 构建中间目录（CI 的 dsh 基座安装位置）
 runtime/.dsh-base/

@@ -136,6 +136,9 @@ async function main(): Promise<void> {
       if (!res.ok) fail(`client.js HTTP ${res.status}（${clientId}）`);
       const body = await res.text();
       if (!body.includes("__ModuleLoader__.load")) fail(`client.js 内容异常（${clientId}）`);
+      if (clientId === "dsh-ui" && !body.includes("settings.general.item")) {
+        fail("dsh-ui client.js 缺少 Harness 设置更新 slot 标记");
+      }
       console.log(`    ✓ ${clientId}/client.js 正常服务（${body.length} 字节）`);
     }
 

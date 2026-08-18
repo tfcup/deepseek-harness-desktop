@@ -8,7 +8,7 @@ CI / CD 流水线（设计文档 §8 / §10 / §11 / §12）。
 | `runtime-build.yml` | workflow_dispatch（upstream-watch 自动触发） | 固定 dsh 版本 → 构建 runtime zip+sha256+manifest → Compatibility Gate（verify-runtime）→ 发布 channel → GitHub Release（tag `runtime-<v>`） | ✅ 已实现（macOS runner） |
 | `runtime-promote.yml` | workflow_dispatch | dev → beta → stable 通道提升（校验方向 + 生成目标通道文件） | ✅ 已实现 |
 | `desktop-test.yml` | push / PR（main） | cargo check/test + 前端 build + Extension 行为测试 | ✅ 已实现 |
-| `desktop-release.yml` | workflow_dispatch（version） | 构建 DMG（Phase 6 补充 codesign/notarize/staple）→ Release | ⚠️ 骨架（Phase 6 完成） |
+| `desktop-release.yml` | tag `v*` / workflow_dispatch（version 可空） | 空版本自动 patch +1 → DMG + `.app.tar.gz` + `.sig` + `latest.json` → Release | ✅ 已实现 |
 
 ## 本地演练
 

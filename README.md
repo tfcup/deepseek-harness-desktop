@@ -60,7 +60,7 @@
    - Alternatively, **Right-click** the app → **Open** → **Open** (once) also works for the plain "unverified developer" warning.
 4. The app seeds the bundled Baseline Runtime and starts **offline** — the embedded Harness UI opens at `http://127.0.0.1:3080`.
 
-> Everything runs locally. Runtime (Harness + Extension Pack) updates happen in-app through the update-source URL (no macOS signing involved). Desktop auto-update requires Apple signing and is therefore disabled in this unsigned distribution; download a new DMG when a release is published.
+> Everything runs locally. Runtime (Harness + Extension Pack) updates use the configured channel. Desktop App updates are available in Harness **Settings → General → App Update** and are verified with the pinned Tauri updater key. Apple Developer ID signing/notarization is configured separately for public distribution.
 
 ### Requirements
 
@@ -157,25 +157,26 @@ bash scripts/prepare-baseline.sh
 
 cd apps/desktop
 export PATH="$HOME/.cargo/bin:/tmp/pnpm-shim:$PATH"
-export TAURI_SIGNING_PRIVATE_KEY_PATH="$PWD/../../updater/keys/desktop-updater.key"
+export TAURI_SIGNING_PRIVATE_KEY="$(cat "$PWD/../../updater/keys/desktop-updater.key")"
 export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="dev-only-key-do-not-use-in-prod"
-corepack pnpm tauri build --target aarch64-apple-darwin --bundles dmg
-# → src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/
+corepack pnpm tauri build --target aarch64-apple-darwin
+# → bundle/dmg/*.dmg + bundle/macos/*.app.tar.gz + *.sig
 ```
 
 > The signing key is required because `tauri-plugin-updater` is enabled in `tauri.conf.json`; the dev key above is gitignored. If a previous build's DMG is still mounted, `hdiutil detach "/Volumes/Deepseek Harness Desktop"` first.
 
 ### Release via CI (recommended)
 
-You do **not** need a local toolchain — the CI builds the DMG for you:
+You do **not** need a local toolchain — the CI builds the DMG and signed Updater artifacts for you. Run `desktop-release` manually and leave `version` empty to increment the latest `vX.Y.Z` tag's patch number, or enter an explicit version.
 
 ```bash
 git add -A && git commit -m "..."
-git push origin main                    # runs desktop-test (quality gate)
-git tag v0.1.11 && git push origin v0.1.11   # runs desktop-release → publishes Release + DMG
+git push origin main                         # runs desktop-test (quality gate)
+# GitHub Actions → desktop-release → Run workflow → version 留空（自动 +1）
+# 也可继续推送显式 vX.Y.Z tag 触发发布
 ```
 
-Then download the DMG from the [Releases](https://github.com/tfcup/deepseek-harness-desktop/releases) page. Remember to bump the version in `apps/desktop/package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` and `src-tauri/Cargo.lock` before tagging.
+The workflow applies its resolved version as a Tauri build override, and uses the same value for the DMG name, updater manifest, tag and GitHub Release. Runtime tags such as `runtime-*` are ignored by automatic version selection.
 
 ## FAQ
 
@@ -185,7 +186,7 @@ Then download the DMG from the [Releases](https://github.com/tfcup/deepseek-harn
 - **What happens during the first launch?** The bundled Baseline Runtime is seeded offline, extensions are installed, the service starts, and the Harness UI loads. The sidebar shows live install/service logs.
 - **Node.js not found?** Install Node.js v22.15+ / v23.8+ / v24+ (Homebrew: `brew install node`, or via nvm) and relaunch. The app does not download Node.
 - **How do Runtime updates work?** Set the update-source URL in the sidebar to a channel manifest (`https://raw.githubusercontent.com/tfcup/deepseek-harness-desktop/main/updater/channels/dev.json` for the dev channel), then check → install (SHA-256 verified) → roll back if needed.
-- **How do I get a new app version?** Download the latest DMG from the Releases page — desktop auto-update is disabled in this unsigned distribution.
+- **How do I get a new app version?** Use **Settings → General → App Update**. The DMG remains available on the Releases page for first install or manual recovery.
 
 ## Security Notes
 

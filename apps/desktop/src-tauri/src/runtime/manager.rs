@@ -182,7 +182,11 @@ pub fn install_extensions(
 ) -> Result<ExtInstallOutcome, String> {
     let ext_root = version_dir.join(".dsh-desktop").join("extensions");
     if !ext_root.exists() {
-        return Ok(ExtInstallOutcome::NoExtensions);
+        return if install_bundled_desktop_ui_extension(app_handle)? {
+            Ok(ExtInstallOutcome::Installed(vec!["dsh-ui".to_string()]))
+        } else {
+            Ok(ExtInstallOutcome::NoExtensions)
+        };
     }
 
     let profiles_nm = config::get_dsh_profiles_node_modules(app_handle);
@@ -205,6 +209,14 @@ pub fn install_extensions(
         installed.push(name);
     }
 
+    // Runtime 可以独立升级，但 dsh-ui 与 Tauri postMessage 协议必须和当前 App 同步。
+    // 因此 Runtime 扩展复制完成后，再用 App Bundle 内的版本做最终覆盖。
+    if install_bundled_desktop_ui_extension(app_handle)?
+        && !installed.iter().any(|name| name == "dsh-ui")
+    {
+        installed.push("dsh-ui".to_string());
+    }
+
     // bundles 清单：profile 未初始化（无 profiles/web/package.json）时跳过，由 ensure 补齐
     if config::get_dsh_profile_package_json(app_handle).exists() {
         if installed.iter().any(|n| n == "dsh-desktop-bundle") {
@@ -214,6 +226,53 @@ pub fn install_extensions(
     } else {
         Ok(ExtInstallOutcome::PendingProfileInit(installed))
     }
+}
+
+/// 定位 App Bundle 内随版本发布的 dsh-ui，兼容 Tauri 的扁平和 resources/ 嵌套布局。
+fn resolve_bundled_desktop_ui_dir(resource_dir: &Path) -> Option<PathBuf> {
+    [
+        resource_dir.join("desktop-extensions").join("dsh-ui"),
+        resource_dir
+            .join("resources")
+            .join("desktop-extensions")
+            .join("dsh-ui"),
+    ]
+    .into_iter()
+    .find(|candidate| candidate.join("package.json").exists())
+}
+
+/// 将 App 自带的 dsh-ui 原子刷新到当前 Harness profile。
+/// 返回 false 表示 dev/旧构建未携带该资源；不会删除用户数据或其他第三方插件。
+pub fn install_bundled_desktop_ui_extension(app_handle: &tauri::AppHandle) -> Result<bool, String> {
+    let resource_dir = app_handle
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("resolve resource_dir failed: {e}"))?;
+    let Some(source) = resolve_bundled_desktop_ui_dir(&resource_dir) else {
+        log::debug!("no bundled dsh-ui desktop extension, skipping overlay");
+        return Ok(false);
+    };
+
+    let profiles_nm = config::get_dsh_profiles_node_modules(app_handle);
+    fs::create_dir_all(&profiles_nm)
+        .map_err(|e| format!("create profiles/node_modules failed: {e}"))?;
+    let destination = profiles_nm.join("dsh-ui");
+    let staging = profiles_nm.join(".dsh-ui-staging");
+
+    // 先完整复制到同文件系统的 staging，避免复制中断留下半个插件目录。
+    if staging.exists() {
+        fs::remove_dir_all(&staging)
+            .map_err(|e| format!("clean dsh-ui staging failed: {e}"))?;
+    }
+    copy_dir_recursive(&source, &staging)?;
+    if destination.exists() {
+        fs::remove_dir_all(&destination)
+            .map_err(|e| format!("clean dsh-ui failed: {e}"))?;
+    }
+    fs::rename(&staging, &destination)
+        .map_err(|e| format!("activate bundled dsh-ui failed: {e}"))?;
+    log::info!("bundled dsh-ui extension synchronized from App resources");
+    Ok(true)
 }
 
 /// 把聚合 bundle 追加进 `profiles/web/package.json`（dependencies + dsh.profile.bundles，幂等）
