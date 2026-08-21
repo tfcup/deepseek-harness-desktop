@@ -42,6 +42,64 @@ fn weight_label(weight: u16) -> &'static str {
     }
 }
 
+/// Build a normalized member identifier without including the family name itself.
+///
+/// Family names can contain words such as "Black" or "Light", so inspecting the whole
+/// font name would incorrectly classify a regular face of those families as a named weight.
+fn face_member_key(family: &str, postscript_name: &str, full_name: &str) -> String {
+    let full_name_suffix = full_name
+        .strip_prefix(family)
+        .unwrap_or_default()
+        .trim_matches(|character: char| {
+            character.is_whitespace() || matches!(character, '-' | '_')
+        });
+    let postscript_suffix = postscript_name
+        .rsplit_once('-')
+        .map(|(_, suffix)| suffix)
+        .unwrap_or_default();
+
+    format!("{full_name_suffix}{postscript_suffix}")
+        .chars()
+        .filter(|character| character.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// Infer the real named member when Core Text flattens every face in a TTC to one weight.
+///
+/// The label intentionally follows the installed face name while the numeric value remains
+/// CSS-compatible for WebKit. Unknown names fall back to font-kit's reported metadata.
+fn named_weight(member_key: &str) -> Option<(u16, &'static str)> {
+    let mappings = [
+        ("ultralight", 200, "Ultralight"),
+        ("extralight", 200, "Extra Light"),
+        ("semilight", 350, "Semilight"),
+        ("demilight", 350, "Demi Light"),
+        ("extrablack", 950, "Extra Black"),
+        ("ultrablack", 950, "Ultra Black"),
+        ("extrabold", 800, "Extra Bold"),
+        ("ultrabold", 800, "Ultra Bold"),
+        ("semibold", 600, "Semibold"),
+        ("demibold", 600, "Demi Bold"),
+        ("hairline", 100, "Hairline"),
+        ("thin", 100, "Thin"),
+        ("light", 300, "Light"),
+        ("book", 400, "Book"),
+        ("regular", 400, "Regular"),
+        ("normal", 400, "Regular"),
+        ("roman", 400, "Roman"),
+        ("medium", 500, "Medium"),
+        ("black", 900, "Black"),
+        ("heavy", 900, "Heavy"),
+        ("bold", 700, "Bold"),
+    ];
+
+    mappings
+        .into_iter()
+        .find(|(name, _, _)| member_key.contains(name))
+        .map(|(_, weight, label)| (weight, label))
+}
+
 /// Convert font-kit style metadata to the CSS spelling used by the client bridge.
 fn style_name(style: Style) -> &'static str {
     match style {
@@ -52,11 +110,22 @@ fn style_name(style: Style) -> &'static str {
 }
 
 /// Build the member label shown in the weight menu, including non-normal styles.
-fn face_label(weight: u16, style: &str) -> String {
+fn face_label(weight_name: &str, style: &str) -> String {
     match style {
-        "italic" => format!("{} Italic", weight_label(weight)),
-        "oblique" => format!("{} Oblique", weight_label(weight)),
-        _ => weight_label(weight).to_string(),
+        "italic" => format!("{weight_name} Italic"),
+        "oblique" => format!("{weight_name} Oblique"),
+        _ => weight_name.to_string(),
+    }
+}
+
+/// Prefer the member name for italic/oblique faces because TTC metadata can flatten style too.
+fn face_style(member_key: &str, reported_style: Style) -> &'static str {
+    if member_key.contains("italic") {
+        "italic"
+    } else if member_key.contains("oblique") {
+        "oblique"
+    } else {
+        style_name(reported_style)
     }
 }
 
@@ -102,13 +171,17 @@ fn scan_system_fonts() -> Result<Vec<FontFamilyInfo>, String> {
             }
             monospace |= font.is_monospace();
             let properties = font.properties();
-            let weight = properties.weight.0.round().clamp(1.0, 1000.0) as u16;
-            let style = style_name(properties.style).to_string();
+            let full_name = font.full_name();
+            let member_key = face_member_key(&family_name, &postscript_name, &full_name);
+            let reported_weight = properties.weight.0.round().clamp(1.0, 1000.0) as u16;
+            let (weight, weight_name) = named_weight(&member_key)
+                .unwrap_or((reported_weight, weight_label(reported_weight)));
+            let style = face_style(&member_key, properties.style).to_string();
             faces.push(FontFaceInfo {
                 postscript_name,
-                full_name: font.full_name(),
+                full_name,
                 weight,
-                weight_label: face_label(weight, &style),
+                weight_label: face_label(weight_name, &style),
                 style,
             });
         }
@@ -147,7 +220,10 @@ pub fn list_system_fonts(refresh: bool) -> Result<Vec<FontFamilyInfo>, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{face_label, normalize_faces, scan_system_fonts, weight_label, FontFaceInfo};
+    use super::{
+        face_label, face_member_key, named_weight, normalize_faces, scan_system_fonts,
+        weight_label, FontFaceInfo,
+    };
 
     /// Build a minimal face for deterministic sort/dedup tests without touching Core Text.
     fn face(name: &str, weight: u16, style: &str) -> FontFaceInfo {
@@ -168,8 +244,50 @@ mod tests {
         assert_eq!(weight_label(500), "Medium");
         assert_eq!(weight_label(600), "Semibold");
         assert_eq!(weight_label(900), "Black");
-        assert_eq!(face_label(500, "italic"), "Medium Italic");
-        assert_eq!(face_label(400, "oblique"), "Regular Oblique");
+        assert_eq!(face_label("Medium", "italic"), "Medium Italic");
+        assert_eq!(face_label("Regular", "oblique"), "Regular Oblique");
+    }
+
+    /// PingFang is a TTC whose Core Text weight can be identical for every loaded member.
+    #[test]
+    fn identifies_pingfang_members_from_their_face_names() {
+        let cases = [
+            (
+                "PingFangSC-Ultralight",
+                "PingFang SC Ultralight",
+                200,
+                "Ultralight",
+            ),
+            ("PingFangSC-Thin", "PingFang SC Thin", 100, "Thin"),
+            ("PingFangSC-Light", "PingFang SC Light", 300, "Light"),
+            ("PingFangSC-Regular", "PingFang SC Regular", 400, "Regular"),
+            ("PingFangSC-Medium", "PingFang SC Medium", 500, "Medium"),
+            (
+                "PingFangSC-Semibold",
+                "PingFang SC Semibold",
+                600,
+                "Semibold",
+            ),
+        ];
+
+        for (postscript_name, full_name, expected_weight, expected_label) in cases {
+            let member_key = face_member_key("PingFang SC", postscript_name, full_name);
+            assert_eq!(
+                named_weight(&member_key),
+                Some((expected_weight, expected_label))
+            );
+        }
+    }
+
+    /// Weight words in a family name must not leak into an otherwise unnamed face.
+    #[test]
+    fn ignores_weight_words_from_the_family_name() {
+        let member_key = face_member_key(
+            "Black Han Sans",
+            "BlackHanSans-Regular",
+            "Black Han Sans Regular",
+        );
+        assert_eq!(named_weight(&member_key), Some((400, "Regular")));
     }
 
     /// Core Text aliases must not produce duplicate options for one selectable face.
@@ -198,5 +316,20 @@ mod tests {
                     .all(|face| !face.postscript_name.trim().is_empty())
         }));
         assert!(families.iter().any(|family| family.monospace));
+
+        // PingFang ships with macOS as a TTC and exercises the metadata-flattening fallback.
+        let pingfang = families
+            .iter()
+            .find(|family| family.family == "PingFang SC")
+            .expect("PingFang SC should be available on macOS");
+        let labels: Vec<&str> = pingfang
+            .faces
+            .iter()
+            .map(|face| face.weight_label.as_str())
+            .collect();
+        assert!(labels.contains(&"Thin"));
+        assert!(labels.contains(&"Regular"));
+        assert!(labels.contains(&"Medium"));
+        assert!(labels.contains(&"Semibold"));
     }
 }
