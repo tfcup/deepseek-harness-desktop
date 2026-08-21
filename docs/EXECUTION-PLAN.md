@@ -1,5 +1,8 @@
 # DeepSeek Harness Desktop（macOS ARM64）执行方案
 
+> **历史计划：** Runtime Channel、独立 Runtime Release、旧 Harness 下载源和桌面工具侧边栏
+> 已被统一 Desktop 更新链取代。当前实现与发布流程以 [ARCHITECTURE.md](ARCHITECTURE.md) 为准。
+
 > 依据 `deepseek-harness-desktop-macos-arm64-design.md` 设计文档，结合当前仓库（v0.1.12）实际代码盘点后整理。
 > 原则：渐进式演进，最大化复用现有代码；官方 Harness 永远视为上游内核（NEVER MODIFY）。
 

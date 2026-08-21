@@ -5,7 +5,6 @@
 
 当前功能：
 
-- 向 `sidebar.footer.action` 注入“桌面设置”按钮；
 - 向 `settings.general.item` 注入“应用更新”设置行；
 - 通过版本化 `postMessage` 协议请求 Tauri 父窗口检查、安装和重启，浏览器页不直接获得原生权限。
 
@@ -15,7 +14,7 @@
 package.json     # dsh.client 声明 + exports["./client"]（叶子包：由聚合包插入行）
 lib/index.js     # 宿主半身（{ name, apply }）
 lib/client.js    # 浏览器 bundle：__ModuleLoader__.load → apply(ctx)
-                 #   ctx.get('slots') → inject sidebar.footer.action + settings.general.item
+                 #   ctx.get('slots') → inject settings.general.item
 ```
 
 要点（官方规范）：
@@ -32,6 +31,5 @@ lib/client.js    # 浏览器 bundle：__ModuleLoader__.load → apply(ctx)
 
 ## 状态
 
-- [x] `sidebar.footer.action` 按钮（slot 注入 + postMessage）
 - [x] Harness 自带设置中的 App 更新入口（`settings.general.item`）
 - [x] 外壳侧安全消息桥（校验 iframe window + service origin）

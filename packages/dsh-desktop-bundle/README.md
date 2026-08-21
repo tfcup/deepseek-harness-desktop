@@ -16,7 +16,7 @@ cordis.patch.yml  # insert dsh-theme / dsh-ui / dsh-tools / dsh-integrations 宿
 | 叶子包 | 形态 | 能力 |
 |---|---|---|
 | `dsh-theme` | Client Plugin | 明暗双主题（`ctx.theme.register`）+ CSS 幂等注入 |
-| `dsh-ui` | Client Plugin | 桌面设置按钮 + `settings.general.item` App 更新入口 |
+| `dsh-ui` | Client Plugin | `settings.general.item` 中唯一的 App 更新入口 |
 | `dsh-tools` | Host 插件 | `desktop_env` 工具（`ctx.tools.register`） |
 | `dsh-integrations` | Host 插件 | `desktop:environment` prompt 段（`ctx.systemPrompt.section`） |
 
@@ -29,4 +29,4 @@ cordis.patch.yml  # insert dsh-theme / dsh-ui / dsh-tools / dsh-integrations 宿
 
 - [x] 聚合入口（四叶子包行全启用）
 - [x] 真实 dsh E2E
-- [ ] 接入 runtime 构建流水线（Phase 4：pnpm 安装依赖 + 复制到 profile）
+- [x] 接入 Runtime 构建流水线，并随 Desktop Release 内置分发

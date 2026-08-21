@@ -2,7 +2,7 @@
   "name": "dsh-ui",
   "version": "0.1.0",
   "private": true,
-  "description": "Custom UI extension for DeepSeek Harness Desktop — injects UI into official slots (sidebar.footer.action) via ctx.slots (design doc Layer 3 / dsh-client mechanism).",
+  "description": "Desktop App updater entry for the official DeepSeek Harness settings page.",
   "type": "module",
   "main": "lib/index.js",
   "exports": {

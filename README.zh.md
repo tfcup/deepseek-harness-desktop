@@ -37,9 +37,9 @@
 ## 功能
 
 - **本地一键运行** — DMG 内置预构建的 Baseline Runtime（Harness + Extension Pack），首启离线种入、零下载启动；只需本机装有 Node.js。
-- **自动跟随官方更新** — 定时流水线每小时检查官方 `@deepseek-ai/dsh` 新版本，自动构建并验证版本化 Runtime，发布到 `dev` 通道；应用内一键升级（SHA-256 校验），支持一键回滚。
+- **自动跟随官方更新** — 定时流水线检查官方 `@deepseek-ai/dsh` 新版本，构建并验证后，把该精确 Runtime 嵌入新的完整 Desktop Release。
 - **不改官方源码的自由定制** — Extension Pack（主题 / UI / 工具 / 集成）全部通过官方扩展机制注入（`ctx.theme.register`、`ctx.slots`、`ctx.tools.register` 等），不 patch 任何官方文件。
-- **数据隔离** — 独立数据目录（`~/Library/Application Support/deepseek-harness-desktop/`）与 CLI `dsh` 的 `~/.dsh` 互不干扰；启动时若发现 3080 端口有任何监听者（如外部 CLI dsh），先结束监听者再拉起自己的隔离实例，绝不"采纳"外部实例。
+- **数据隔离** — 独立数据目录（`~/Library/Application Support/Deepseek-Harness-Desktop/`）与 CLI `dsh` 的 `~/.dsh` 互不干扰；启动时若发现 3080 端口有任何监听者（如外部 CLI dsh），先结束监听者再拉起自己的隔离实例，绝不"采纳"外部实例。
 - **轻量原生** — Tauri 2 外壳（系统 WebKit，非自带 Chromium）：标准 macOS 标题栏 + 红绿灯、主题色标题栏、System 主题同步、双击最大化。
 
 > **为什么用 Tauri 而不是 Electron？** 相同功能下它更轻：更小的安装包、更低的内存占用、更跟手的原生窗口控制——对可能要常驻后台的本地 agent 尤为重要；内嵌的是系统 WebKit 而非自带 Chromium，进一步缩小安装体积。
@@ -60,7 +60,7 @@
    - 若提示的是普通的"无法验证开发者"，也可用 **右键点击应用 → 打开 → 再点打开**（仅首次）放行。
 4. 应用**离线开箱即用**：首启自动种入内置 Baseline Runtime 并启动服务，就绪后内嵌 Harness 界面打开在 `http://127.0.0.1:3080`。
 
-> 一切都在本地完成。**Runtime 更新**（Harness + Extension Pack）在应用内通过"更新源 URL"完成，不涉及 macOS 签名；**桌面端自动更新**依赖 Apple 签名，未签名分发下不可用，发布新版时从 Releases 手动下载 DMG 即可。
+> 一切都在本地完成。Harness **设置 → 常规 → 应用更新**是唯一更新入口；完整 App 更新通过 Tauri 密钥验证，重启后校验并激活内置的新 Harness Runtime，失败会自动恢复上一版本。
 
 ### 系统要求
 
@@ -71,39 +71,33 @@
 
 ## 更新机制
 
-两条相互独立的更新路径（详见 `updater/README.md`）：
-
-| | Runtime 更新（Harness 内核） | 桌面更新（应用本身） |
-|---|---|---|
-| 更新什么 | 应用内部的 dsh 引擎——版本化、原子安装、可回滚 | 整个应用 |
-| 怎么更新 | 应用内：在侧边栏把**更新源 URL** 设为通道 manifest（`dev` / `beta` / `stable` 或任意自定义 URL），然后 检查 → 下载 → 安装 | **未签名分发下不可用**（依赖 Apple 签名） |
-| 流水线 | `upstream-watch`（每小时）检测到官方新版 → `runtime-build` 构建 + Compatibility Gate 验证 → 发布到 `dev` 通道；`beta` / `stable` 人工提升 | tag `v*` → `desktop-release` 在 CI 构建 DMG 并发布 GitHub Release |
-
-当前通道状态（`updater/channels/`）：`dev.json` 指向 runtime `2026.08.16.1`（dsh `0.1.0-rc.6`）；`beta.json` / `stable.json` 为空壳，待人工提升后才有内容。
+项目只有一条用户更新路径：`upstream-watch` 检测官方 Harness，`runtime-build` 固定版本并通过
+Compatibility Gate，随后 `desktop-release` 把同一个 Artifact 嵌入新的 patch Release。新用户
+下载 DMG；已安装 App 检查 `latest.json` 并安装同一 Release 中签名的 `.app.tar.gz`。Runtime
+版本只在内部用于安全激活和自动回滚，不再单独发布或展示。
 
 ## 工作原理
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
 │ 应用壳 — Tauri 2 + React（原生标题栏、System 主题）           │
-│   boot()：种入 baseline → 启动服务 → iframe → Harness 界面    │
-│   侧边栏：服务 / Runtime 更新 / 日志 / 设置                   │
+│   boot()：校验内置 Runtime → 启动服务 → iframe → Harness 界面 │
+│   Harness 设置：唯一的 Desktop App 更新入口                  │
 └──────────────────────┬───────────────────────────────────────┘
-                       │ invoke 命令（bridge/cmd.rs，约 30 个）
+                       │ 精简 invoke 桥
 ┌──────────────────────┴───────────────────────────────────────┐
 │ Rust 后端                                                     │
 │   process/    dsh 生命周期：无条件重建——3080 端口任何监听者   │
 │               （含外部 CLI dsh）先结束，再用隔离的 $DSH_HOME   │
 │               拉起自己的实例（仅杀 lsof -sTCP:LISTEN 监听者） │
-│   runtime/    版本化安装（versions/<v> + current/previous）、 │
-│               baseline 种入、更新 / 回滚                      │
+│   runtime/    内置版本激活、健康检查与自动回滚                 │
 │   config/     本机 Node 解析、设置、主题、i18n                │
-│   service/    调度器 + 健康检查、下载引擎                     │
+│   service/    主题偏好同步 + 本地解压                         │
 └──────┬───────────────────────────────┬───────────────────────┘
        │                               │
   packages/ (Extension Pack)      runtime/versions/<v>/
   主题 · UI · 工具 · 集成 ——       （CI 流水线构建，随 DMG
-  通过官方扩展点注入，不改官方     内置为 baseline，应用内更新）
+  通过官方扩展点注入，不改官方     内置为 baseline，随 App 更新）
        └──────────────┬──────────────┘
                       ▼
    node dsh --profile web --host 127.0.0.1 --port 3080
@@ -112,7 +106,7 @@
          http://127.0.0.1:3080/  ← 内嵌 Harness 界面
 ```
 
-- Harness 内核来自官方 npm 包 `@deepseek-ai/dsh`（另保留 [deepseek-harness-pkg](https://github.com/hairyf/deepseek-harness-pkg) 作为预构建包兜底源）。
+- Harness 内核只来自官方 npm 包 `@deepseek-ai/dsh`，由 CI 固定精确版本后构建。
 - Runtime 快照版本化（`YYYY.MM.DD.N`），发布前经过 Compatibility Gate 验证，安装带 SHA-256 校验且可回滚。
 - 实现架构详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)；原始设计文档见 [docs/deepseek-harness-desktop-macos-arm64-design.md](docs/deepseek-harness-desktop-macos-arm64-design.md)。
 
@@ -120,14 +114,14 @@
 
 数据目录为 Application Support 下的自定义命名目录（同 Chrome/VS Code 的做法，不叫 bundle id）：
 
-- macOS：`~/Library/Application Support/deepseek-harness-desktop/`
+- macOS：`~/Library/Application Support/Deepseek-Harness-Desktop/`
 
 包含：
 
 - `runtime/versions/<v>/`：版本化 Harness Runtime（current / previous）
 - `data/dsh/`：Harness 用户数据（`$DSH_HOME`，含 profile、会话、设置），与 CLI `dsh` 的 `~/.dsh` 隔离
 - `logs/`：应用与 dsh 服务日志
-- `.store.dat`：桌面端配置（端口、自启动、语言）
+- `.store.dat`：桌面端配置（安装状态、端口、语言）
 
 ## 开发与构建
 
@@ -155,35 +149,36 @@ bash scripts/prepare-baseline.sh
 
 cd apps/desktop
 export PATH="$HOME/.cargo/bin:/tmp/pnpm-shim:$PATH"
-export TAURI_SIGNING_PRIVATE_KEY_PATH="$PWD/../../updater/keys/desktop-updater.key"
+export TAURI_SIGNING_PRIVATE_KEY="$(cat "$PWD/../../updater/keys/desktop-updater.key")"
 export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="dev-only-key-do-not-use-in-prod"
-corepack pnpm tauri build --target aarch64-apple-darwin --bundles dmg
-# → src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/
+corepack pnpm tauri build --target aarch64-apple-darwin
+# → bundle/dmg/*.dmg + bundle/macos/*.app.tar.gz + *.sig
 ```
 
 > `tauri-plugin-updater` 已启用，所以构建必须带签名配置；上面用的是仓库内 gitignore 的开发密钥。若上次构建的 DMG 仍挂载着，先 `hdiutil detach "/Volumes/Deepseek Harness Desktop"`。
 
 ### 走 CI 发布（推荐）
 
-无需本地工具链——CI 会帮你构建 DMG：
+无需本地工具链——CI 会构建 DMG 和签名的 Updater 产物。手动运行
+`desktop-release` 时，版本留空会在最新 `vX.Y.Z` tag 上自动递增 patch，也可以输入明确版本：
 
 ```bash
 git add -A && git commit -m "..."
-git push origin main                    # 触发 desktop-test（质量门）
-git tag v0.1.11 && git push origin v0.1.11   # 触发 desktop-release → 发布 Release + DMG
+git push origin main                         # 触发 desktop-test（质量门）
+# GitHub Actions → desktop-release → Run workflow → version 留空（自动 +1）
+# 也可继续推送明确的 vX.Y.Z tag 触发发布
 ```
 
-之后到 [Releases](https://github.com/tfcup/deepseek-harness-desktop/releases) 下载 DMG。打 tag 前记得同步升级 `apps/desktop/package.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml` 与 `src-tauri/Cargo.lock` 里的版本号。
+工作流会把解析后的版本作为 Tauri 构建覆盖值，并统一用于 DMG 名称、更新清单、tag 和 GitHub Release。
 
 ## 常见问题
 
-- **3080 端口被占用？** 应用会结束 3080 端口上的监听进程（**仅 LISTEN socket**，绝不碰只持有普通连接的进程，如浏览器），再启动自己的隔离实例；也可以在侧边栏修改端口。
+- **3080 端口被占用？** 应用会结束 3080 端口上的监听进程（**仅 LISTEN socket**，绝不碰只持有普通连接的进程，如浏览器），再启动自己的隔离实例。
 - **提示"应用程序已损坏，无法打开"？** 文件并没有损坏——这是 Gatekeeper 对"ad-hoc 签名 + 下载隔离属性"的误报。执行一次 `xattr -dr com.apple.quarantine "/Applications/Deepseek Harness Desktop.app"` 后重新打开即可（安装新版本后需再执行一次）。
 - **会不会污染我 CLI dsh 的数据？** 不会。应用使用独立数据目录和独立 `$DSH_HOME`；3080 上正在运行的 CLI dsh 会被结束而非"采纳"。
-- **首次启动发生了什么？** 离线种入内置 Baseline Runtime → 安装扩展 → 启动服务 → 加载 Harness 界面；侧边栏实时展示安装/服务日志。
+- **首次启动发生了什么？** 校验内置 Runtime manifest 和 SHA256 → 激活构建时的精确版本 → 安装扩展 → 启动并加载 Harness 界面。
 - **提示找不到 Node.js？** 安装 Node.js v22.15+ / v23.8+ / v24+（Homebrew：`brew install node`，或 nvm）后重开应用。应用不下载 Node。
-- **Runtime 更新怎么用？** 在侧边栏把"更新源 URL"设为通道 manifest（dev 通道示例：`https://raw.githubusercontent.com/tfcup/deepseek-harness-desktop/main/updater/channels/dev.json`），然后 检查 → 安装（SHA-256 校验）→ 需要时回滚。
-- **怎么获取新版本应用？** 到 Releases 页面下载最新 DMG——未签名分发下桌面自动更新不可用。
+- **怎么更新？** 使用 Harness **设置 → 常规 → 应用更新**。完整 App 更新已经包含最新且验证通过的 Harness；DMG 继续用于首次安装和手动恢复。
 
 ## 安全声明
 
@@ -197,15 +192,13 @@ git tag v0.1.11 && git push origin v0.1.11   # 触发 desktop-release → 发布
 - [实现架构](docs/ARCHITECTURE.md) — 实现说明
 - [执行计划](docs/EXECUTION-PLAN.md) — 分阶段计划与进度
 - [插件 API 调研](docs/DSH-PLUGIN-API.md) — 官方扩展点研究
-- [包契约](docs/PKG-CONTRACT.md) — 发布产物契约
-- [通道提升](docs/PROMOTION.md) — 通道提升指南
+- [推广材料](docs/PROMOTION.md) — 项目介绍草稿
 
 ## 相关项目
 
 | 仓库 | 作用 |
 | --- | --- |
 | [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) | 上游 `dsh`（CLI + Web UI + 插件架构） |
-| [deepseek-harness-pkg](https://github.com/hairyf/deepseek-harness-pkg) | 预构建 Harness 包兜底源 |
 | [n8n-desktop](https://github.com/tangtao646/n8n-desktop) | 参考实现（一键安装 + 本地运行 + 内嵌 Web 界面） |
 
 ## 致谢

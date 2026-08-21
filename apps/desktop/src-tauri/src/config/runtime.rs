@@ -1,5 +1,4 @@
 use serde::Serialize;
-use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Runtime};
@@ -151,34 +150,6 @@ pub fn require_local_node() -> Result<PathBuf, String> {
     Ok(node)
 }
 
-/// 打包的 DeepSeek Harness 发行版下载地址（macOS ARM64 only）
-pub fn get_dsh_download_url() -> Result<String, String> {
-    let arch = env::consts::ARCH;
-    let os = env::consts::OS;
-    if os != "macos" || arch != "aarch64" {
-        return Err(format!("Unsupported platform: {} {}", os, arch));
-    }
-
-    let filename = "deepseek-harness-pkg-macos-arm64.zip";
-    Ok(format!("{}{}", DSH_CORE_URL, filename))
-}
-
-/// 本机 Node.js 版本号（读 `node --version`；读取失败时回退为支持基线用于展示）
-pub fn get_active_node_version() -> String {
-    if let Some(node) = find_local_node_binary() {
-        if let Some(output) = node_version_output(&node) {
-            if output.status.success() {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let version = stdout.trim().trim_start_matches('v');
-                if !version.is_empty() {
-                    return version.to_string();
-                }
-            }
-        }
-    }
-    get_supported_node_version()
-}
-
 /// Runtime 多版本目录（设计文档 §14）：`<app-data>/runtime/versions/`。Phase 1 使用
 #[allow(dead_code)]
 pub fn get_runtime_versions_dir<R: Runtime>(app_handle: &AppHandle<R>) -> PathBuf {
@@ -218,11 +189,6 @@ pub fn get_dsh_install_path<R: Runtime>(app_handle: &AppHandle<R>) -> PathBuf {
 /// dsh CLI 入口
 pub fn get_dsh_binary_path<R: Runtime>(app_handle: &AppHandle<R>) -> PathBuf {
     get_dsh_install_path(app_handle).join(DSH_ENTRY_RELATIVE)
-}
-
-/// Harness 发行版清单路径
-pub fn get_dsh_package_json_path<R: Runtime>(app_handle: &AppHandle<R>) -> PathBuf {
-    get_dsh_install_path(app_handle).join(DSH_MANIFEST_RELATIVE)
 }
 
 /// Harness 用户数据目录（$DSH_HOME）
@@ -292,55 +258,15 @@ pub fn is_runtime_compatible(_app_handle: &tauri::AppHandle) -> bool {
     is_supported_node_version(stdout.trim())
 }
 
-/// 从打包的 Harness 清单读取 dsh 版本（界面展示用）
-pub fn get_dsh_version<R: Runtime>(app_handle: &AppHandle<R>) -> Option<String> {
-    let manifest_path = get_dsh_package_json_path(app_handle);
-    let content = fs::read_to_string(&manifest_path).ok()?;
-    let manifest: serde_json::Value = serde_json::from_str(&content).ok()?;
-    manifest
-        .get("dependencies")
-        .and_then(|deps| deps.get("@deepseek-ai/dsh"))
-        .and_then(|value| value.as_str())
-        .map(|value| value.trim_start_matches(['^', '~', '=', '>', '<']).to_string())
-}
-
-/// 侧边栏展示的运行时/版本/诊断信息
+/// 前端启动 WebView 所需的最小 Runtime 信息。
 #[derive(Debug, Clone, Serialize)]
 pub struct RuntimeInfo {
-    pub app_version: String,
-    pub dsh_version: Option<String>,
-    /// Runtime 版本（读自本地 current.json，§6 四版本分离）
-    pub runtime_version: Option<String>,
-    /// Extension Pack 版本（Phase 3 起填充）
-    pub extension_version: Option<String>,
-    pub node_version: String,
     pub service_url: String,
-    pub data_dir: String,
-    pub log_path: String,
-    pub platform: String,
-    pub arch: String,
 }
 
-pub fn runtime_info<R: Runtime>(app: &AppHandle<R>, port: u16) -> RuntimeInfo {
-    let app_data_dir = get_base_dir(app).to_string_lossy().into_owned();
-
-    let manifest = crate::runtime::manifest::RuntimeManifest::load_current(app);
-
+pub fn runtime_info<R: Runtime>(_app: &AppHandle<R>, port: u16) -> RuntimeInfo {
     RuntimeInfo {
-        app_version: app.package_info().version.to_string(),
-        dsh_version: get_dsh_version(app),
-        runtime_version: manifest.as_ref().map(|m| m.runtime_version.clone()),
-        extension_version: manifest.as_ref().map(|m| m.extension_version.clone()),
-        node_version: get_active_node_version(),
         service_url: get_dsh_service_url(port),
-        data_dir: app_data_dir.clone(),
-        log_path: PathBuf::from(&app_data_dir)
-            .join("logs")
-            .join("dsh-web.log")
-            .to_string_lossy()
-            .into_owned(),
-        platform: env::consts::OS.to_string(),
-        arch: env::consts::ARCH.to_string(),
     }
 }
 

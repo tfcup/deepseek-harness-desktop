@@ -81,9 +81,4 @@ impl<'a, R: Runtime> ProgressTracker<'a, R> {
             },
         );
     }
-
-    /// 跳过指定数量的阶段
-    pub fn skip_phases(&mut self, count: usize) {
-        self.current_phase = (self.current_phase + count).min(self.total_phases);
-    }
 }

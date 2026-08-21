@@ -12,15 +12,15 @@ const en: Translation = {
     title1: "Run DeepSeek Harness",
     title2: "on your desktop, instantly",
     subtitle:
-      "No Node.js, no pnpm, no Docker — download the installer and go. 100% local, your data never leaves the machine, and the core updates itself to follow upstream.",
+      "Install the DMG and run the verified Harness locally. Your data stays on the machine, and complete App updates track compatible upstream releases.",
     ctaPrimary: "Download",
     ctaSecondary: "View source",
     stat1: "0",
     stat1Label: "GitHub stars",
-    stat2: "3",
-    stat2Label: "Platforms",
-    stat3: "0",
-    stat3Label: "Env setup",
+    stat2: "ARM64",
+    stat2Label: "macOS",
+    stat3: "Node",
+    stat3Label: "Local runtime",
     stat4: "100%",
     stat4Label: "Local",
     scrollHint: "Scroll to explore",
@@ -33,11 +33,11 @@ const en: Translation = {
     items: [
       {
         title: "One-click, out of the box",
-        desc: "First launch bootstraps the bundled Harness bundle and Node runtime automatically; if a compatible Node (v22.15+ / v23.8+) is already installed it is reused — zero environment setup.",
+        desc: "The DMG includes a verified Harness Runtime. First launch validates and activates it offline; only a compatible local Node.js installation is required.",
       },
       {
-        title: "Self-healing core updates",
-        desc: "On every launch it diffs against the latest deepseek-harness-pkg release and re-downloads when out of date, so upstream fixes reach you without manual reinstalls.",
+        title: "Unified App updates",
+        desc: "New upstream Harness versions pass the Compatibility Gate and become complete Desktop Releases. Settings exposes one signed App update flow.",
       },
       {
         title: "100% local",
@@ -52,8 +52,8 @@ const en: Translation = {
         desc: "Built on Tauri 2, not Electron: smaller installers, lower memory, using the system WebView2/WebKit instead of bundling Chromium.",
       },
       {
-        title: "Cross-platform",
-        desc: "Windows (NSIS/MSI), macOS (DMG) and Linux (AppImage) installers, all available.",
+        title: "Apple Silicon",
+        desc: "The current developer preview is built and validated for macOS 11+ on Apple Silicon.",
       },
       {
         title: "Bilingual",
@@ -61,7 +61,7 @@ const en: Translation = {
       },
       {
         title: "Theme-aware",
-        desc: "A frameless native window whose shell and sidebar adapt to the Harness light/dark theme automatically.",
+        desc: "The native loading and error states follow the Harness light/dark theme automatically.",
       },
     ],
   },
@@ -71,29 +71,29 @@ const en: Translation = {
     items: [
       {
         q: "How much needs to be downloaded on first launch?",
-        a: "The Node runtime and the Harness bundle (~a few hundred MB) are downloaded once; after that it runs offline. If a compatible Node (v22.15+ / v23.8+) is found on your machine it is reused and the runtime download is skipped.",
+        a: "Nothing is downloaded for Harness setup: the verified Runtime is included in the App. A compatible local Node.js installation is required.",
       },
       {
         q: "Port 3080 is taken — what now?",
-        a: "Change the port in the sidebar settings and restart the service.",
+        a: "The preview currently owns port 3080 and stops an existing listener before starting its isolated Harness service.",
       },
       {
-        q: "Why does it reach GitHub on every launch?",
-        a: "It compares the installed Harness bundle against the latest release commit and re-downloads when they differ. If GitHub is unreachable, the local installation is kept.",
+        q: "Why does it reach GitHub on launch?",
+        a: "The Tauri App Updater checks the signed Desktop update manifest. Harness itself no longer has a separate download or update channel.",
       },
       {
         q: "How do updates work after install?",
-        a: "Launches skip the setup screen and check for new versions silently; an “Update now / Later” prompt appears when one is found. Updating re-downloads the bundle and restarts the service.",
+        a: "Open Harness Settings → General → App Update. The signed complete App update includes the newly verified Harness Runtime and activates it after restart.",
       },
       {
         q: "Where is my data stored?",
-        a: "It follows the app bundle identifier: %APPDATA% on Windows, ~/Library/Application Support on macOS, ~/.local/share on Linux — containing runtime, dependencies/dsh and data/dsh.",
+        a: "On macOS it is stored under ~/Library/Application Support/Deepseek-Harness-Desktop/. App and Runtime updates preserve data/dsh.",
       },
     ],
   },
   cta: {
     title: "Ready to run DeepSeek Harness locally?",
-    desc: "Free · MIT · Open source. Windows / macOS / Linux.",
+    desc: "Free · MIT · Open source. macOS Apple Silicon preview.",
     button: "Download from GitHub Releases",
     secondary: "Star the project",
   },
@@ -113,7 +113,6 @@ const en: Translation = {
     related: "Related",
     relatedLinks: {
       upstream: "deepseek-harness (upstream)",
-      pkg: "deepseek-harness-pkg",
     },
     disclaimer: "For learning / research / testing only. The agent has local code execution — use it in an isolated environment.",
     license: "MIT License © deepseek-harness-desktop contributors",

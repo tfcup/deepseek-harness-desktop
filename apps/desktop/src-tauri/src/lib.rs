@@ -1,7 +1,6 @@
 mod bridge;
 mod config;
 mod core;
-mod health;
 mod logger;
 mod node;
 mod process;
@@ -18,7 +17,7 @@ use tauri::{
 
 // setup app
 fn setup(app_handle: tauri::AppHandle) {
-    // 启动进程监控（tick 检测 dsh 服务状态）
+    // Harness 主题偏好由其设置文件持有；低频轮询只负责同步外层加载/错误界面。
     service::scheduler::start(&app_handle);
 
     // dsh-ui 属于桌面 App 的原生桥接层，必须优先覆盖旧 Runtime 携带的副本。
@@ -27,48 +26,8 @@ fn setup(app_handle: tauri::AppHandle) {
         log::warn!("Bundled desktop UI extension install failed: {}", e);
     }
 
-    // 存量安装迁移：纳入版本化 Runtime 布局 + 补齐 Extension Pack（均幂等）
-    let migrate_app = app_handle.clone();
-    tauri::async_runtime::spawn(async move {
-        let setting = config::get_store_dat_setting(&migrate_app);
-        if setting.installed {
-            if let Err(e) = runtime::manager::ensure_runtime_import(&migrate_app) {
-                log::warn!("Runtime import failed: {}", e);
-            }
-            if let Err(e) = runtime::manager::ensure_extensions_for_current(&migrate_app) {
-                log::warn!("Extensions install failed: {}", e);
-            }
-        }
-    });
-
-    // 方案 B（§23）：从 bundle 资源 seed 基线（Node + Baseline Runtime），离线开箱即用
-    let seed_app = app_handle.clone();
-    tauri::async_runtime::spawn(async move {
-        match runtime::manager::seed_baseline_from_resources(&seed_app) {
-            Ok(true) => {
-                let mut setting = config::get_store_dat_setting(&seed_app);
-                if !setting.installed {
-                    setting.installed = true;
-                    config::set_store_dat_setting(&seed_app, setting);
-                }
-                let _ = runtime::manager::ensure_extensions_for_current(&seed_app);
-            }
-            Ok(false) => {}
-            Err(e) => log::warn!("Baseline seed failed: {}", e),
-        }
-    });
-
-    // 开机自启动：已安装且开启 auto_start 时拉起服务
-    tauri::async_runtime::spawn(async move {
-        let setting = config::get_store_dat_setting(&app_handle);
-        if !setting.auto_start {
-            log::debug!("auto_start disabled, skipping startup");
-            return;
-        }
-        if let Err(e) = process::start(app_handle).await {
-            log::error!("start failed: {}", e);
-        }
-    });
+    // Runtime 安装与 Harness 启动必须严格串行；由前端 boot 调用 launch_harness，
+    // 避免旧版的多个后台任务同时迁移、解压和拉起同一服务。
 }
 
 // setup tray
@@ -130,31 +89,11 @@ fn tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
 // configure invoke handler
 fn handler() -> impl Fn(Invoke<Wry>) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
-        bridge::cmd::install_dependencies,
-        bridge::cmd::check_dsh_update,
         bridge::cmd::launch_harness,
         bridge::cmd::shutdown_harness,
-        bridge::cmd::restart_harness,
-        bridge::cmd::get_dsh_status,
         bridge::cmd::proxy_health_check,
         bridge::cmd::get_runtime_info,
-        bridge::cmd::get_runtime_status,
-        bridge::cmd::check_runtime_update,
-        bridge::cmd::install_runtime_update,
-        bridge::cmd::install_runtime_zip,
-        bridge::cmd::rollback_runtime,
-        bridge::cmd::ensure_runtime_extensions,
-        bridge::cmd::has_baseline_resources,
-        bridge::cmd::wait_for_baseline_seed,
-        bridge::cmd::get_app_config,
-        bridge::cmd::update_app_config,
-        bridge::cmd::open_in_browser,
-        bridge::cmd::copy_service_url,
-        bridge::cmd::reveal_data_dir,
-        bridge::cmd::read_service_logs,
-        bridge::cmd::clear_service_logs,
         bridge::cmd::set_language,
-        bridge::cmd::toggle_sidebar,
         bridge::cmd::get_dsh_theme,
     ]
 }
@@ -169,14 +108,8 @@ fn builder() -> tauri::Builder<tauri::Wry> {
                 let _ = window.hide();
             }
         })
-        // Opener plugin
-        .plugin(tauri_plugin_opener::init())
-        // FS plugin
-        .plugin(tauri_plugin_fs::init())
         // Simple Store plugin
         .plugin(tauri_plugin_store::Builder::new().build())
-        // Clipboard plugin
-        .plugin(tauri_plugin_clipboard_manager::init())
         // Process plugin：Updater 安装完成后正常重启当前 App
         .plugin(tauri_plugin_process::init())
         // Updater plugin（§18 Desktop Update；pubkey/endpoints 来自 tauri.conf.json plugins.updater）

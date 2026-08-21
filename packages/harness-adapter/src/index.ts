@@ -97,7 +97,7 @@ export function removeBundleFromProfile(dshHome: string, bundleName: string, pro
 /**
  * 把扩展包目录复制进 `$DSH_HOME/profiles/node_modules/<name>/`（官方扁平回退目录，
  * Node 父目录上溯即可解析；实测确认该目录由官方维护、只增不删）。
- * 复制而非软链：跨 Runtime 更新更稳（不会留下悬空链接）。
+ * 复制而非软链：完整 App 更新切换内置 Runtime 时不会留下悬空链接。
  */
 export function installBundleToProfile(dshHome: string, srcDir: string, bundleName: string): string {
   const dest = join(profilesNodeModulesDir(dshHome), bundleName);

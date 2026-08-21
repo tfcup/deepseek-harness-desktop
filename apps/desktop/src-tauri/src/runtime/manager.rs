@@ -1,4 +1,4 @@
-//! Runtime Manager（设计文档 §13 / §14）。
+//! App 内置 Runtime 的版本化安装、激活与自动回滚。
 //!
 //! 版本化布局（`<app-data>/runtime/`）：
 //!
@@ -12,105 +12,28 @@
 //! └── previous.json             # 上一版本（回滚用）
 //! ```
 //!
-//! 职责：多版本列表、首次导入（传统目录迁移）、本地 zip 安装（SHA256 → staging →
-//! 激活 → 重启 → 健康检查 → 失败自动回滚）、回滚。
+//! Runtime 不再独立联网更新；每个 Desktop Release 都携带已经验证的 Runtime，App
+//! 启动时先激活它，再启动 Harness 并执行健康检查。
 
 use crate::config;
 use crate::process;
-use crate::runtime::manifest::{self, Channel, RuntimeManifest};
+use crate::runtime::manifest::{self, RuntimeManifest};
 use crate::service::download::{self, ProgressTracker};
-use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::Manager;
 
-/// 版本列表条目（前端展示用）
-#[derive(Debug, Clone, Serialize)]
-pub struct VersionInfo {
-    pub runtime_version: String,
-    pub harness_version: String,
-    pub node_version: String,
-    pub active: bool,
-}
-
-/// Runtime 状态（前端 Runtime 卡片用）
-#[derive(Debug, Clone, Serialize)]
-pub struct RuntimeStatus {
-    pub current: Option<VersionInfo>,
-    pub previous: Option<VersionInfo>,
-    pub versions: Vec<VersionInfo>,
-}
-
-/// 列出全部已安装的 Runtime 版本（按版本号降序）
-pub fn list_versions(app_handle: &tauri::AppHandle) -> Vec<VersionInfo> {
-    let versions_dir = config::get_runtime_versions_dir(app_handle);
-    let current = RuntimeManifest::load_current(app_handle);
-
-    let mut items: Vec<VersionInfo> = Vec::new();
-    if let Ok(entries) = fs::read_dir(&versions_dir) {
-        for entry in entries.flatten() {
-            let dir = entry.path();
-            if !dir.is_dir() {
-                continue;
-            }
-            let Some(version) = dir.file_name().and_then(|n| n.to_str()).map(String::from) else {
-                continue;
-            };
-            if let Some(m) = RuntimeManifest::load_version(app_handle, &version) {
-                items.push(VersionInfo {
-                    runtime_version: m.runtime_version.clone(),
-                    harness_version: m.harness_version.clone(),
-                    node_version: m.node_version.clone(),
-                    active: current
-                        .as_ref()
-                        .map(|c| c.runtime_version == m.runtime_version)
-                        .unwrap_or(false),
-                });
-            }
-        }
-    }
-    items.sort_by(|a, b| {
-        if RuntimeManifest::version_gt(&a.runtime_version, &b.runtime_version) {
-            std::cmp::Ordering::Less
-        } else if RuntimeManifest::version_gt(&b.runtime_version, &a.runtime_version) {
-            std::cmp::Ordering::Greater
-        } else {
-            std::cmp::Ordering::Equal
-        }
-    });
-    items
-}
-
-/// 当前 Runtime 状态
-pub fn status(app_handle: &tauri::AppHandle) -> RuntimeStatus {
-    let versions = list_versions(app_handle);
-    let current = RuntimeManifest::load_current(app_handle)
-        .map(|m| to_version_info(&m, true));
-    let previous = RuntimeManifest::load_previous(app_handle)
-        .map(|m| to_version_info(&m, false));
-    RuntimeStatus {
-        current,
-        previous,
-        versions,
-    }
-}
-
-fn to_version_info(m: &RuntimeManifest, active: bool) -> VersionInfo {
-    VersionInfo {
-        runtime_version: m.runtime_version.clone(),
-        harness_version: m.harness_version.clone(),
-        node_version: m.node_version.clone(),
-        active,
-    }
-}
-
-/// 计算下一个版本号：`YYYY.MM.DD.<当日序号>`（当天第 N 次安装）
+/// 为旧目录迁移计算一个本地版本号；正式内置 Runtime 始终采用构建清单版本。
 pub fn next_runtime_version(app_handle: &tauri::AppHandle) -> String {
     let today = manifest::today_yyyymmdd();
-    let count = list_versions(app_handle)
-        .iter()
-        .filter(|v| v.runtime_version.starts_with(&today))
-        .count();
+    let count = match fs::read_dir(config::get_runtime_versions_dir(app_handle)) {
+        Ok(entries) => entries
+            .filter_map(Result::ok)
+            .filter_map(|entry| entry.file_name().into_string().ok())
+            .filter(|version| version.starts_with(&today))
+            .count(),
+        Err(_) => 0,
+    };
     format!("{today}.{}", count + 1)
 }
 
@@ -140,7 +63,7 @@ pub fn ensure_runtime_import(app_handle: &tauri::AppHandle) -> Result<(), String
     }
     fs::rename(&legacy, &target).map_err(|e| format!("move legacy runtime failed: {e}"))?;
 
-    let m = build_manifest(app_handle, &version, None);
+    let m = build_legacy_manifest(&version, &target);
     m.save_version(app_handle)?;
     m.save_current(app_handle)?;
     log::info!("Runtime imported: {} (harness {})", m.runtime_version, m.harness_version);
@@ -326,95 +249,114 @@ fn resolve_baseline_dir(resource_dir: &Path) -> PathBuf {
     resource_dir.join("resources").join("baseline")
 }
 
-/// 方案 B（§23）：从 bundle 资源 seed 基线 Runtime 到 app-data（离线开箱即用）。
+/// 读取并校验 App Bundle 内的 Runtime 三件套。
 ///
-/// 资源布局（CI 构建期放入 `src-tauri/resources/baseline/`）：
-///   - `runtime.zip`：Baseline Runtime（runtime/scripts/build-runtime.ts 产物）
-///
-/// 说明（§15 修订）：Node 不再内置/下载，直接使用本机 Node（缺失即报错）。
-///
-/// 流程：Runtime → `versions/<v>/` + manifest + current.json + 扩展装入。
-/// 返回是否 seed 了内容（调用方据此标记 installed）。
-/// tauri dev / 无资源构建时返回 Ok(false)，走原有下载流程。
-pub fn seed_baseline_from_resources(app_handle: &tauri::AppHandle) -> Result<bool, String> {
+/// manifest 与独立 sha256 文件必须指向同一个 zip 哈希，防止构建或拷贝步骤把不同
+/// Runtime 版本混装进同一个 Desktop Release。
+fn bundled_runtime_resources(
+    app_handle: &tauri::AppHandle,
+) -> Result<(PathBuf, RuntimeManifest), String> {
     let resource_dir = app_handle
         .path()
         .resource_dir()
         .map_err(|e| format!("resolve resource_dir failed: {e}"))?;
     let baseline_dir = resolve_baseline_dir(&resource_dir);
     let runtime_zip = baseline_dir.join("runtime.zip");
+    let manifest_path = baseline_dir.join("manifest.json");
+    let sha_path = baseline_dir.join("runtime.zip.sha256");
+    if !runtime_zip.is_file() || !manifest_path.is_file() || !sha_path.is_file() {
+        return Err("App 缺少内置 Runtime 资源，请重新安装应用".to_string());
+    }
 
-    if !runtime_zip.exists() {
-        log::debug!("no baseline runtime resource (dev / plan A build), skipping seed");
+    let raw = fs::read_to_string(&manifest_path)
+        .map_err(|e| format!("read bundled Runtime manifest failed: {e}"))?;
+    let manifest: RuntimeManifest = serde_json::from_str(&raw)
+        .map_err(|e| format!("parse bundled Runtime manifest failed: {e}"))?;
+    manifest.validate_bundled()?;
+
+    let sidecar_sha = fs::read_to_string(&sha_path)
+        .map_err(|e| format!("read bundled Runtime sha256 failed: {e}"))?
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if sidecar_sha != manifest.sha256.to_ascii_lowercase() {
+        return Err("内置 Runtime manifest 与 SHA256 文件不一致".to_string());
+    }
+    let actual_sha = file_sha256(&runtime_zip)?;
+    if actual_sha != sidecar_sha {
+        return Err(format!(
+            "内置 Runtime SHA256 校验失败：期望 {sidecar_sha}，实际 {actual_sha}"
+        ));
+    }
+    Ok((runtime_zip, manifest))
+}
+
+/// 在 Harness 启动前安装 Desktop Release 内置的 Runtime。
+///
+/// 返回 true 表示本次切换了 current；只有相同版本才跳过。Desktop 与 Runtime 是同一
+/// 个经过 Compatibility Gate 的发布单元，因此即使用户手动降级 App，也必须切换到
+/// 该 App 精确携带的 Runtime，不能继续运行另一个 Desktop 版本的 Runtime。
+fn activate_bundled_runtime(app_handle: &tauri::AppHandle) -> Result<bool, String> {
+    let (runtime_zip, manifest) = bundled_runtime_resources(app_handle)?;
+    if let Some(current) = RuntimeManifest::load_current(app_handle) {
+        let current_dir = config::get_runtime_versions_dir(app_handle).join(&current.runtime_version);
+        if current_dir.join(config::DSH_ENTRY_RELATIVE).is_file()
+            && current.runtime_version == manifest.runtime_version
+        {
+            return Ok(false);
+        }
+    }
+
+    let version = &manifest.runtime_version;
+    let versions_dir = config::get_runtime_versions_dir(app_handle);
+    fs::create_dir_all(&versions_dir).map_err(|e| format!("create versions dir failed: {e}"))?;
+    let target = versions_dir.join(version);
+    // 同一个 Desktop Release 已经触发过健康检查回滚时继续使用上一版本，避免每次
+    // 重启都重复解压并启动一个已知不可用的 Runtime；下一个 Runtime 版本会正常尝试。
+    if target.join(".activation-failed").is_file() {
+        log::warn!("bundled Runtime {version} was previously rejected; keeping current Runtime");
         return Ok(false);
     }
-    let mut seeded = false;
-
-    // 1) Baseline Runtime（无当前版本且资源存在时）
-    if RuntimeManifest::load_current(app_handle).is_none() && runtime_zip.exists() {
-        let version = next_runtime_version(app_handle);
-        let versions_dir = config::get_runtime_versions_dir(app_handle);
-        fs::create_dir_all(&versions_dir).map_err(|e| format!("create versions dir failed: {e}"))?;
-        let staging = versions_dir.join(format!(".staging-{version}"));
-
-        let buffer = fs::read(&runtime_zip).map_err(|e| format!("read runtime.zip failed: {e}"))?;
-        let window = app_handle
-            .get_webview_window("main")
-            .ok_or("Failed to get main window")?;
-        let mut tracker = download::ProgressTracker::new(&window, 1);
-        tracker.start_phase("extract", "seeding baseline runtime");
-        download::ensure_extract(&tracker, "runtime.zip".to_string(), buffer, staging.clone())?;
-        tracker.end_phase();
-
-        if !staging.join(config::DSH_ENTRY_RELATIVE).exists() {
-            let _ = fs::remove_dir_all(&staging);
-            return Err("baseline runtime 缺少 dsh 入口，seed 中止".to_string());
-        }
-        let target = versions_dir.join(&version);
-        if target.exists() {
-            let _ = fs::remove_dir_all(&target);
-        }
-        fs::rename(&staging, &target).map_err(|e| format!("activate baseline failed: {e}"))?;
-
-        let m = build_manifest(app_handle, &version, None);
-        m.save_version(app_handle)?;
-        m.save_current(app_handle)?;
-        log_ext_install(&install_extensions(app_handle, &target)?);
-        seeded = true;
-        log::info!("baseline runtime seeded: {} (harness {})", m.runtime_version, m.harness_version);
+    let staging = versions_dir.join(format!(".staging-{version}"));
+    if staging.exists() {
+        fs::remove_dir_all(&staging).map_err(|e| format!("clean Runtime staging failed: {e}"))?;
     }
 
-    Ok(seeded)
-}
+    let buffer = fs::read(&runtime_zip).map_err(|e| format!("read runtime.zip failed: {e}"))?;
+    let window = app_handle
+        .get_webview_window("main")
+        .ok_or("Failed to get main window")?;
+    let mut tracker = ProgressTracker::new(&window, 1);
+    tracker.start_phase("extract", &format!("准备内置 Runtime {version}"));
+    download::ensure_extract(&tracker, "runtime.zip".to_string(), buffer, staging.clone())?;
+    tracker.end_phase();
 
-/// 是否存在方案 B 基线资源（bundle 内置 node/runtime）
-pub fn has_baseline_resources(app_handle: &tauri::AppHandle) -> bool {
-    let Ok(resource_dir) = app_handle.path().resource_dir() else {
-        return false;
-    };
-    resolve_baseline_dir(&resource_dir).join("runtime.zip").exists()
-}
+    if !staging.join(config::DSH_ENTRY_RELATIVE).is_file() {
+        let _ = fs::remove_dir_all(&staging);
+        return Err("内置 Runtime 缺少 Harness 入口，请重新安装应用".to_string());
+    }
+    if target.exists() {
+        fs::remove_dir_all(&target).map_err(|e| format!("clean Runtime target failed: {e}"))?;
+    }
+    fs::rename(&staging, &target).map_err(|e| format!("activate Runtime staging failed: {e}"))?;
 
-/// 等待后台基线 seed 完成（最多 120s；seed 完成会把 installed 置 true）。
-///
-/// - 已安装 → 立即 true（无需等待）；
-/// - 无基线资源 → 立即 false（前端回退联网安装）；
-/// - 有基线 → 轮询 installed（seed 在解压完 runtime 后才置位），超时返回 false。
-pub async fn wait_for_baseline_seed(app_handle: &tauri::AppHandle) -> bool {
-    if config::get_store_dat_setting(app_handle).installed {
-        return true;
+    if let Some(current) = RuntimeManifest::load_current(app_handle) {
+        current.archive_current_as_previous(app_handle)?;
     }
-    if !has_baseline_resources(app_handle) {
-        return false;
-    }
-    for _ in 0..240 {
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-        if config::get_store_dat_setting(app_handle).installed {
-            return true;
-        }
-    }
-    log::warn!("baseline seed 超时（120s），installed 仍未置位");
-    false
+    manifest.save_version(app_handle)?;
+    manifest.save_current(app_handle)?;
+    log_ext_install(&install_extensions(app_handle, &target)?);
+
+    let mut setting = config::get_store_dat_setting(app_handle);
+    setting.installed = true;
+    config::set_store_dat_setting(app_handle, setting);
+    log::info!(
+        "bundled Runtime activated: {} (harness {})",
+        manifest.runtime_version,
+        manifest.harness_version
+    );
+    Ok(true)
 }
 
 /// 递归复制目录
@@ -433,32 +375,27 @@ fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// 构建版本 manifest：本地缺省值 + 远程 channel manifest 覆盖（Phase 4 起 remote 生效）
-fn build_manifest(
-    app_handle: &tauri::AppHandle,
-    version: &str,
-    remote: Option<&RuntimeManifest>,
-) -> RuntimeManifest {
-    let app_version = app_handle.package_info().version.to_string();
+/// 为旧版未纳入版本管理的 Harness 生成一次性迁移清单。
+fn build_legacy_manifest(version: &str, runtime_dir: &Path) -> RuntimeManifest {
     let (platform, arch) = manifest::platform_ids();
+    let harness_version = fs::read_to_string(runtime_dir.join(config::DSH_MANIFEST_RELATIVE))
+        .ok()
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|package| {
+            package["dependencies"]["@deepseek-ai/dsh"]
+                .as_str()
+                .map(ToString::to_string)
+        })
+        .unwrap_or_else(|| "legacy".to_string());
     RuntimeManifest {
         schema_version: 1,
-        channel: remote.map(|m| m.channel).unwrap_or(Channel::Dev),
         runtime_version: version.to_string(),
-        harness_version: remote
-            .map(|m| m.harness_version.clone())
-            .unwrap_or_else(|| config::get_dsh_version(app_handle).unwrap_or_default()),
-        extension_version: remote
-            .map(|m| m.extension_version.clone())
-            .unwrap_or_else(|| "0.0.0".to_string()),
-        node_version: remote
-            .map(|m| m.node_version.clone())
-            .unwrap_or_else(config::get_supported_node_version),
+        harness_version,
+        extension_version: "legacy".to_string(),
+        node_version: config::get_supported_node_version(),
         platform,
         arch,
-        url: remote.map(|m| m.url.clone()).unwrap_or_default(),
-        sha256: remote.map(|m| m.sha256.clone()).unwrap_or_default(),
-        minimum_desktop_version: app_version,
+        sha256: "0".repeat(64),
         published_at: manifest::now_rfc3339(),
     }
 }
@@ -472,129 +409,8 @@ pub fn file_sha256(path: &Path) -> Result<String, String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-/// 安装一个本地 runtime 包（zip），并激活。
-///
-/// 流程（§13）：SHA256 校验 → 解压到 staging → 校验产物 → 正式目录 → 写版本 manifest
-/// → 激活（current → previous，new → current）→ 重启 Harness → 健康检查 → 失败自动回滚。
-pub async fn install_runtime_package(
-    app_handle: &tauri::AppHandle,
-    zip_path: &Path,
-    expected_sha256: Option<&str>,
-    remote_manifest: Option<&RuntimeManifest>,
-) -> Result<RuntimeManifest, String> {
-    if !config::get_store_dat_setting(app_handle).installed {
-        return Err("Harness 尚未安装，无法更新 Runtime".to_string());
-    }
-
-    // 1. SHA256 校验
-    if let Some(expected) = expected_sha256 {
-        if !expected.is_empty() {
-            let actual = file_sha256(zip_path)?;
-            if !actual.eq_ignore_ascii_case(expected) {
-                return Err(format!(
-                    "SHA256 校验失败：期望 {expected}，实际 {actual}"
-                ));
-            }
-        }
-    }
-
-    // 2. 读取 zip 内容
-    let buffer = fs::read(zip_path).map_err(|e| format!("读取 zip 失败: {e}"))?;
-    let name = zip_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("runtime.zip")
-        .to_string();
-
-    // 3. 版本号与目录
-    let version = next_runtime_version(app_handle);
-    let versions_dir = config::get_runtime_versions_dir(app_handle);
-    fs::create_dir_all(&versions_dir).map_err(|e| format!("create versions dir failed: {e}"))?;
-    let target_dir = versions_dir.join(&version);
-    let staging_dir = versions_dir.join(format!(".staging-{version}"));
-
-    // 4. 解压到 staging（复用现有下载器的解压/进度设施）
-    let window = app_handle
-        .get_webview_window("main")
-        .ok_or("Failed to get main window")?;
-    let mut tracker = ProgressTracker::new(&window, 2);
-    tracker.start_phase(
-        "extract",
-        &format!("解压 Runtime {}", version),
-    );
-    download::ensure_extract(&tracker, name, buffer, staging_dir.clone())?;
-    tracker.end_phase();
-
-    // 5. 校验解压产物：dsh 入口必须存在
-    if !staging_dir.join(config::DSH_ENTRY_RELATIVE).exists() {
-        let _ = fs::remove_dir_all(&staging_dir);
-        return Err("解压产物缺少 dsh 入口，安装中止".to_string());
-    }
-
-    // 6. staging → 正式目录（原子重命名）
-    if target_dir.exists() {
-        let _ = fs::remove_dir_all(&target_dir);
-    }
-    fs::rename(&staging_dir, &target_dir)
-        .map_err(|e| format!("activate staging dir failed: {e}"))?;
-
-    // 7. 写版本 manifest
-    let new_manifest = build_manifest(app_handle, &version, remote_manifest);
-    new_manifest.save_version(app_handle)?;
-
-    // 7.5 安装本版本携带的 Extension Pack（在激活重启前，保证重启后扩展已就位）
-    log_ext_install(&install_extensions(app_handle, &target_dir)?);
-
-    // 8. 激活 + 重启 + 健康检查（失败自动回滚）
-    activate_and_verify(app_handle, new_manifest.clone()).await?;
-
-    Ok(new_manifest)
-}
-
-/// 激活新版本并验证：current → previous、new → current、重启 Harness、健康检查。
-/// 健康检查失败时自动回滚到上一版本并再次重启（§14）。
-async fn activate_and_verify(
-    app_handle: &tauri::AppHandle,
-    new_manifest: RuntimeManifest,
-) -> Result<(), String> {
-    let old = RuntimeManifest::load_current(app_handle);
-
-    // 原子切换：先归档 previous，再写 current
-    if let Some(old) = &old {
-        old.archive_current_as_previous(app_handle)?;
-    }
-    new_manifest.save_current(app_handle)?;
-
-    match restart_and_health_check(app_handle).await {
-        Ok(()) => {
-            log::info!(
-                "Runtime {} activated (harness {})",
-                new_manifest.runtime_version,
-                new_manifest.harness_version
-            );
-            Ok(())
-        }
-        Err(e) => {
-            log::error!("新 Runtime 健康检查失败: {e}，自动回滚");
-            // 回滚：恢复 previous → current
-            if let Some(prev) = RuntimeManifest::load_previous(app_handle) {
-                let cur = RuntimeManifest::load_current(app_handle);
-                if let Err(rollback_err) = prev.save_current(app_handle) {
-                    log::error!("回滚写入 current.json 失败: {rollback_err}");
-                }
-                if let Some(c) = cur {
-                    let _ = c.archive_current_as_previous(app_handle);
-                }
-            }
-            let _ = restart_and_health_check(app_handle).await;
-            Err(format!("新 Runtime 启动失败，已自动回滚：{e}"))
-        }
-    }
-}
-
-/// 重启 Harness 并轮询健康检查（最多约 10 秒）
-async fn restart_and_health_check(app_handle: &tauri::AppHandle) -> Result<(), String> {
-    process::restart(app_handle.clone()).await?;
+/// 等待 Harness 健康检查通过，避免仅凭子进程创建成功就确认 Runtime。
+async fn wait_for_health(app_handle: &tauri::AppHandle) -> Result<(), String> {
     let port = config::get_store_dat_setting(app_handle).port;
     for _ in 0..20 {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -605,21 +421,86 @@ async fn restart_and_health_check(app_handle: &tauri::AppHandle) -> Result<(), S
     Err("健康检查超时（10s）".to_string())
 }
 
-/// 回滚到上一版本（§14）
-pub async fn rollback_runtime(app_handle: &tauri::AppHandle) -> Result<String, String> {
-    let prev = RuntimeManifest::load_previous(app_handle)
-        .ok_or("没有可回滚的上一版本".to_string())?;
-    let cur = RuntimeManifest::load_current(app_handle);
+/// 清理非 current/previous 的 Runtime，限制完整 App 更新后的磁盘增长。
+fn cleanup_old_versions(app_handle: &tauri::AppHandle, preserve_failed: bool) {
+    let current = RuntimeManifest::load_current(app_handle).map(|m| m.runtime_version);
+    let previous = RuntimeManifest::load_previous(app_handle).map(|m| m.runtime_version);
+    let Ok(entries) = fs::read_dir(config::get_runtime_versions_dir(app_handle)) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(version) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if path.is_dir()
+            && current.as_deref() != Some(version)
+            && previous.as_deref() != Some(version)
+            && !(preserve_failed && path.join(".activation-failed").is_file())
+        {
+            if let Err(error) = fs::remove_dir_all(&path) {
+                log::warn!("cleanup old Runtime {} failed: {}", path.display(), error);
+            }
+        }
+    }
+}
 
-    prev.save_current(app_handle)?;
-    if let Some(c) = cur {
-        c.archive_current_as_previous(app_handle)?;
+/// 激活 App 内置 Runtime，启动 Harness，并在新版本不健康时自动恢复上一版本。
+/// 这是唯一 Runtime 升级入口，由 `launch_harness` 调用，对用户不可见。
+pub async fn launch_with_bundled_runtime(app_handle: &tauri::AppHandle) -> Result<(), String> {
+    let profile_was_initialized = config::get_dsh_profile_package_json(app_handle).is_file();
+    if config::get_store_dat_setting(app_handle).installed {
+        ensure_runtime_import(app_handle)?;
+    }
+    let activated = activate_bundled_runtime(app_handle)?;
+    let start_result = process::launch(app_handle.clone()).await;
+    let health_result = match start_result {
+        Ok(()) => wait_for_health(app_handle).await,
+        Err(error) => Err(error),
+    };
+
+    if health_result.is_ok() {
+        // 首次启动会在 Harness 就绪时创建 profile，此时补齐 bundles 后必须重启一次，
+        // 否则“应用更新”设置行要等用户第二次打开 App 才会出现。
+        match ensure_extensions_for_current(app_handle) {
+            Ok(ExtInstallOutcome::Installed(_)) if !profile_was_initialized => {
+                process::stop(app_handle.clone()).await?;
+                process::launch(app_handle.clone()).await?;
+                wait_for_health(app_handle).await?;
+            }
+            Ok(_) => {}
+            Err(error) => log::warn!("post-start extension sync failed: {error}"),
+        }
+        cleanup_old_versions(app_handle, !activated);
+        return Ok(());
     }
 
-    let msg = format!("已回滚到 Runtime {}", prev.runtime_version);
-    match restart_and_health_check(app_handle).await {
-        Ok(()) => Ok(msg),
-        Err(e) => Err(format!("{msg}，但健康检查失败：{e}")),
+    let error = health_result.unwrap_err();
+    if !activated {
+        return Err(error);
+    }
+    let Some(previous) = RuntimeManifest::load_previous(app_handle) else {
+        return Err(format!("新 Runtime 启动失败，且没有可回滚版本：{error}"));
+    };
+
+    log::error!("新 Runtime 启动失败：{error}，自动恢复 {}", previous.runtime_version);
+    process::stop(app_handle.clone()).await?;
+    if let Some(rejected) = RuntimeManifest::load_current(app_handle) {
+        let rejected_dir = config::get_runtime_versions_dir(app_handle).join(rejected.runtime_version);
+        if let Err(marker_error) = fs::write(rejected_dir.join(".activation-failed"), &error) {
+            log::warn!("record rejected Runtime failed: {marker_error}");
+        }
+    }
+    previous.save_current(app_handle)?;
+    process::launch(app_handle.clone()).await?;
+    match wait_for_health(app_handle).await {
+        Ok(()) => {
+            log::warn!("新 Runtime 启动失败，已自动恢复上一版本：{error}");
+            Ok(())
+        }
+        Err(rollback_error) => Err(format!(
+            "新 Runtime 启动失败，上一版本恢复后也未通过健康检查：{rollback_error}"
+        )),
     }
 }
 

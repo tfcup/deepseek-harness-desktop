@@ -3,10 +3,6 @@ use std::time::Duration;
 /// 支持的 Node.js 版本基线（本机 Node 方案：直接使用用户本机 Node，缺失/不兼容即报错）
 pub const NODE_VERSION: &str = "v22.22.0";
 
-/// 打包的 DeepSeek Harness 发行版下载地址（GitHub Release）
-pub const DSH_CORE_URL: &str =
-    "https://github.com/hairyf/deepseek-harness-pkg/releases/latest/download/";
-
 /// Harness 服务地址与默认端口
 pub const DSH_HOST: &str = "http://127.0.0.1";
 pub const DSH_PORT: u16 = 3080;

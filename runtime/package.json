@@ -7,7 +7,6 @@
   "scripts": {
     "detect-upstream": "node scripts/detect-upstream.ts",
     "build": "node scripts/build-runtime.ts",
-    "verify": "node scripts/verify-runtime.ts",
-    "publish": "node scripts/publish-runtime.ts"
+    "verify": "node scripts/verify-runtime.ts"
   }
 }

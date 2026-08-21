@@ -195,16 +195,17 @@ export function useDesktopUpdaterBridge({
   }, [publish]);
 
   useEffect(() => {
-    /** 初始化当前 App 版本，失败时仍允许后续 check() 返回版本信息。 */
-    async function loadCurrentVersion() {
+    /** 初始化当前版本后静默检查一次；安装和重启仍只响应用户在设置页的操作。 */
+    async function initializeUpdater() {
       try {
         publish({ currentVersion: await getVersion() });
       } catch (error) {
         console.debug("[DesktopUpdaterBridge] failed to read app version:", error);
       }
+      await checkForUpdate();
     }
-    void loadCurrentVersion();
-  }, [publish]);
+    void initializeUpdater();
+  }, [checkForUpdate, publish]);
 
   useEffect(() => {
     /**

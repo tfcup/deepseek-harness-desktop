@@ -7,22 +7,21 @@
 
 ## 0. 事实清单（所有帖子都基于以下事实，勿夸大）
 
-- 项目：**DeepSeek Harness Desktop**（`hairyf/deepseek-harness-desktop`），v0.1.8，MIT
+- 项目：**DeepSeek Harness Desktop**（`tfcup/deepseek-harness-desktop`），v0.1.13，MIT
 - 本质：DeepSeek Harness（dsh agent 平台）的一键桌面封装，**基于 Tauri 2**（比 Electron 轻得多）
-- 一键开箱即用：免装 Node.js / pnpm / Docker，下载即跑；首次启动自动装内核
-- 智能 Node 复用：本机有 v22.15+ / v23.8+ 的 Node 则直接复用，否则用内置 v22.22.0 LTS
-- 内核自愈更新：每次启动对比 `deepseek-harness-pkg` 最新 release，不一致自动重下，上游修复无需手动重装
+- 一键开箱即用：无需 pnpm / Docker；App 内置经过验证的 Harness Runtime（需要本机 Node.js v22.15+ / v23.8+）
+- 统一 App 更新：自动捕获 Harness 上游版本并构建新的 Desktop Release，用户在 Harness 设置中确认安装
 - 纯本地：服务跑在 `http://127.0.0.1:3080`，profile / 会话 / 设置全在本机
 - 隐私默认：隔离 `$DSH_HOME`，默认关遥测（`DSH_TELEMETRY_DISABLED=1`，隐私观感加分）
-- 跨平台：Windows（NSIS/MSI）、macOS（DMG）、Linux（AppImage）
+- 当前发布平台：macOS Apple Silicon（DMG）
 - 中英双语界面的原生窗口外壳（无边框 + 主题跟随）
 - 定位：非商业、仅供学习/研究/测试；agent 有本地代码执行能力，请在隔离环境使用
 - 竞品参考（本盘点）：`steven-kid`(88★, Electron/JS)、`sleep2agi`(10★, JS)、`ningbainb`(15★, Electron/TS)
 
 ### 差异点（对外主打）
 1. **同源可信**：与官方同作者生态，离上游最近、更新跟上最快的 Tauri 版（其他多为 Electron，更重）。
-2. **免环境**：连 Node 都不用装就能跑完整 agent 平台，这是最大门槛的消除。
-3. **内核自愈**：不用等桌面端发版，DeepSeek Harness 内核一更新，桌面端启动时就自动跟进。
+2. **少配置**：无需安装 pnpm 或 Docker，兼容 Node 环境下直接运行完整 agent 平台。
+3. **统一更新**：Harness 上游更新通过验证后自动生成 Desktop Release，App 内只保留一个更新入口。
 4. **隐私**：纯本地 + 默认关遥测，数据不出机器。
 
 ---
@@ -30,7 +29,7 @@
 ## 1. V2EX（中文 · 「分享创造」节点风格，技术向但亲民）
 
 **标题候选：**
-> 做了个 DeepSeek Harness 桌面版：免装 Node/pnpm/Docker，下载即跑，还能自动更新内核
+> 做了个 DeepSeek Harness 桌面版：内置 Harness Runtime，还能在设置里更新 App
 
 **正文：**
 
@@ -39,10 +38,10 @@
 所以我基于 Tauri 2 做了个桌面封装：**DeepSeek Harness Desktop**，把这层门槛直接抹掉了。
 
 核心几点：
-- **一键开箱即用**：下载安装包 → 打开 → 自动装内核 → 完事。本机有兼容 Node 就直接复用，没有就内置 v22 LTS，完全不碰你的系统环境。
+- **一键开箱即用**：安装兼容 Node 后，下载安装包 → 打开 → 使用；Harness Runtime 已包含在 App 中。
 - **纯本地 + 隐私默认**：跑在 127.0.0.1:3080，profile/会话/设置都在本机；隔离开的 DSH_HOME，默认关遥测。
-- **内核自愈更新**：每次启动对比最新的 deepseek-harness-pkg release，不一致自动重下。也就是说 DeepSeek Harness 上游一更新，桌面端不用等我就自动跟进，很省心。
-- **跨平台**：Windows / macOS / Linux 都有安装包，界面中英双语。
+- **统一 App 更新**：DeepSeek Harness 上游更新通过自动验证后会生成新版 Desktop Release，用户在设置里检查、安装并重启。
+- **当前平台**：提供 macOS Apple Silicon 安装包，界面中英双语。
 
 为什么用 Tauri 而不是 Electron？因为同样的功能下它更轻，内存和安装包都小一圈，原生窗口更跟手。这类「本地跑 agent」的工具我倾向干干净净的。
 
@@ -69,19 +68,19 @@ DeepSeek Harness 是现在关注度很高的开源 agent 平台（GitHub 8w+ sta
 这也是我为什么会做一个桌面版 —— DeepSeek Harness Desktop（开源，MIT）。它不是重写，而是把这套 agent 平台打包成「下载 → 打开 → 用」的样子：
 
 **1) 真正的一键式**
-- 免装 Node.js / pnpm / Docker。
-- 首次启动自动安装内核，本机若有兼容 Node 直接复用，没有就用内置的 v22 LTS。
+- 无需安装 pnpm / Docker，App 内置经过验证的 Harness Runtime。
+- 需要本机 Node.js v22.15+ / v23.8+。
 - 之后打开就直接进入 Harness 界面，不用每次都配环境。
 
 **2) 隐私是默认值**
 - 所有东西跑在本地 127.0.0.1:3080，profile、会话、设置不离开你的机器。
 - 隔离开的 DSH_HOME，默认关闭遥测。这一点对把 agent 当私人生产力工具的人很重要。
 
-**3) 内核自愈更新**
-最深的一点：它每次启动会对比上游 deepseek-harness-pkg 的最新 release，内核有更新就自动重下。等于**你不用管「桌面版 vs 上游」的版本落差**，官方一进步，你这边下次打开就跟上了。
+**3) 统一 App 更新**
+自动化会捕获上游 Harness 新版本，验证 Runtime 后发布新的 Desktop Release。用户只需在 Harness 自带设置中检查、安装并重启 App，不再面对单独的内核更新通道。
 
-**4) 跨平台 + 双语**
-Windows/macOS/Linux 安装包都有，界面中英双语，原生窗口（Tauri 2，比 Electron 轻）。
+**4) 原生窗口 + 双语**
+当前提供 macOS Apple Silicon 安装包，界面中英双语，原生窗口基于 Tauri 2。
 
 适用人群：
 - 学生/研究者：想低成本试 dsh，不想碰环境。
@@ -99,13 +98,13 @@ Windows/macOS/Linux 安装包都有，界面中英双语，原生窗口（Tauri 
 ## 3. 即刻 / 微博（中文 · 短动态，2~3 条可轮流发）
 
 **即刻/微博 短帖 A：**
-> 把 DeepSeek Harness（8w+ star 的 agent 平台）做成了桌面 App：免装 Node/pnpm/Docker，下载即跑，纯本地，默认关遥测。最妙的是内核能自愈更新，上游一更新下次打开就自动跟进。基于 Tauri 2，比 Electron 轻。Win/mac/Linux 都有包，中英双语界面。🎉 🔗 github.com/hairyf/deepseek-harness-desktop
+> 把 DeepSeek Harness 做成了 Tauri 桌面 App：内置经过验证的 Harness Runtime，纯本地，默认关遥测；上游更新通过验证后自动发布新版 App，并可在设置中完成更新。当前支持 macOS Apple Silicon。🔗 github.com/tfcup/deepseek-harness-desktop
 
 **短帖 B（偏使用场景）：**
-> 想给不懂技术的家人/同事演示 agent 能干嘛？这个桌面版只要下载打开就能用，不用配任何环境。跑在本地 127.0.0.1，数据不出机器。适合想干净、私密体验 dsh 的人。Project: DeepSeek Harness Desktop @ GitHub 🔗 github.com/hairyf/deepseek-harness-desktop
+> 想给家人/同事演示 agent 能干嘛？准备兼容 Node 后，桌面版下载打开即可用。服务跑在本地 127.0.0.1，数据不出机器。Project: DeepSeek Harness Desktop @ GitHub 🔗 github.com/tfcup/deepseek-harness-desktop
 
 **短帖 C（偏工程/清单）：**
-> DeepSeek Harness Desktop v0.1.8：✓ 免 Node 环境 ✓ 纯本地+关遥测 ✓ 内核自愈更新 ✓ Tauri2 轻量 ✓ Win/mac/Linux ✓ 双语。开源 MIT，仅供学习/研究/测试。GitHub 欢迎 star/issue 🔗 github.com/hairyf/deepseek-harness-desktop
+> DeepSeek Harness Desktop v0.1.13：✓ 内置 Harness Runtime ✓ 纯本地+关遥测 ✓ App 内统一更新 ✓ Tauri 2 ✓ macOS Apple Silicon ✓ 双语。开源 MIT，仅供学习/研究/测试。GitHub 欢迎 star/issue 🔗 github.com/tfcup/deepseek-harness-desktop
 
 ---
 
@@ -118,13 +117,13 @@ Windows/macOS/Linux 安装包都有，界面中英双语，原生窗口（Tauri 
 
 今天发现了一个宝藏开源项目！把我心心念念的 DeepSeek Harness（GitHub 8w+ star 的 AI Agent 平台）做成了**桌面 App**，关键是真的能开箱即用👇
 
-✨ 免装环境：不用 Node.js、不用 pnpm、不用 Docker！下载→打开→完事，内置了 Node 运行时，本机有兼容版本也会自动复用～
+✨ 少配环境：不用 pnpm、不用 Docker；安装兼容 Node.js 后，下载 App 即可使用内置 Harness Runtime。
 
 🔒 纯本地+隐私：所有数据和会话都跑在你自己电脑上（127.0.0.1），默认关遥测，不悄悄上传。介意隐私的同学会爱这个。
 
-🔄 内核自愈更新：上游 agent 平台一更新，这个桌面版下次打开就自动跟进，不用手动折腾版本。
+🔄 统一 App 更新：上游 Harness 更新通过自动验证后会生成新的 Desktop Release，在设置中即可安装。
 
-💻 跨平台：Windows / macOS / Linux 都有安装包，界面中英双语，原生 Tauri 2 比 Electron 更轻更流畅～
+💻 当前支持 macOS Apple Silicon，界面中英双语，原生 Tauri 2 比 Electron 更轻更流畅～
 
 💡 适合谁？
 - 想试 AI Agent 但配置环境想劝退的
@@ -152,10 +151,10 @@ I built a Tauri 2 desktop wrapper for [DeepSeek Harness](https://github.com/deep
 DeepSeek Harness Desktop turns that into download → launch → use.
 
 What it does:
-- **One-click install**: it bundles a Node runtime (v22.22.0 LTS) and a prebuilt Harness bundle; if you already have a compatible Node (v22.15+ / v23.8+) it reuses yours and skips the download.
+- **Bundled Harness Runtime**: the App ships the exact Runtime that passed the release compatibility gate; a compatible local Node.js version is required.
 - **Runs 100% local**: the `dsh web` service on `http://127.0.0.1:3080`; profiles, sessions, settings all on your machine. Isolated `$DSH_HOME`, telemetry disabled by default (`DSH_TELEMETRY_DISABLED=1`).
-- **Self-healing core updates**: on every launch it diffs the installed Harness bundle against the latest `deepseek-harness-pkg` release and re-downloads when it differs. So upstream fixes ship to end users without waiting on a wrapper release.
-- **Cross-platform**: Windows (NSIS/MSI), macOS (DMG), Linux (AppImage). Bilingual UI (EN/中文). Built on Tauri 2 rather than Electron to keep it light.
+- **One update path**: upstream Harness releases are validated and turned into Desktop Releases automatically; users check, install, and restart from Harness settings.
+- **Current platform**: macOS Apple Silicon (DMG), with a bilingual UI. Built on Tauri 2 rather than Electron to keep it light.
 
 Honest caveats: it's under active development (upstream dsh moves fast with breaking changes) and it's for learning/research/testing — as with any agent harness, it has local code execution, so run it in a trusted, isolated environment.
 
@@ -177,7 +176,7 @@ https://github.com/hairyf/deepseek-harness-desktop
 
 DeepSeek Harness ("Everything is a Plugin", ~82k stars) is a genuinely interesting agent platform, but I kept seeing people bounce off the setup — Node version juggling, pnpm, sometimes Docker, then the CLI.
 
-So I packaged it as a Tauri 2 desktop app. You download an installer, open it, and it bootstraps everything: bundled Node runtime (or it reuses a compatible local Node if present), prebuilt Harness bundle, and it launches straight into the local web UI on 127.0.0.1:3080.
+So I packaged it as a Tauri 2 desktop app. With a compatible local Node.js installed, the App uses its release-verified Harness Runtime and launches straight into the local web UI on 127.0.0.1:3080.
 
 Things I care about:
 - **100% local & private**: profiles/sessions/settings stay on your machine; isolated DSH_HOME; telemetry off by default.
@@ -228,7 +227,7 @@ https://github.com/hairyf/deepseek-harness-desktop
 
 **中文 X/微博 AI（选发）：**
 
-把「Everything is a Plugin」的 DeepSeek Harness（8w+ star）装进了桌面 App：免 Node/pnpm/Docker，下载即跑；纯本地、默认关遥测；内核还能自愈更新、自动跟随上游。Tauri 2 轻量跨平台，中英双语。MIT 开源 🔗 github.com/hairyf/deepseek-harness-desktop
+把「Everything is a Plugin」的 DeepSeek Harness 装进了桌面 App：内置经过验证的 Runtime；纯本地、默认关遥测；上游更新验证后自动生成新版 App。Tauri 2，macOS Apple Silicon，中英双语。MIT 开源 🔗 github.com/tfcup/deepseek-harness-desktop
 
 ---
 
@@ -237,16 +236,16 @@ https://github.com/hairyf/deepseek-harness-desktop
 **Release notes 草稿（v0.1.7/v0.1.8 可对外用）：**
 
 ```markdown
-## DeepSeek Harness Desktop v0.1.8
+## DeepSeek Harness Desktop v0.1.13
 
-Dsh 桌面版 —— 在本地一键运行 DeepSeek Harness，无需安装 Node.js / pnpm / Docker。
+Dsh 桌面版 —— 在本地运行 DeepSeek Harness，无需安装 pnpm / Docker；需要兼容 Node.js。
 
 ### 亮点
-- 🚀 免安装环境，首次启动自动装配内核与 Node 运行时
+- 🚀 App 内置通过 Compatibility Gate 的 Harness Runtime
 - 🔒 纯本地运行 + 默认关闭遥测 + 隔离 `$DSH_HOME`
-- 🔄 内核自愈更新：启动时自动同步上游 deepseek-harness-pkg 最新版本
+- 🔄 Harness 上游更新后自动发布新版 App，并在设置中统一更新
 - 🪟 原生 Tauri 2 无边框窗口，跟随主题，中英双语界面
-- 🖥 Windows / macOS / Linux 安装包
+- 🖥 macOS Apple Silicon 安装包
 
 ### Install
 从本页 Downloads 下载对应平台安装包 → 安装 → 启动即用。
@@ -255,7 +254,6 @@ Dsh 桌面版 —— 在本地一键运行 DeepSeek Harness，无需安装 Node.
 
 ### 感谢
 - 上游 [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)
-- [deepseek-harness-pkg](https://github.com/hairyf/deepseek-harness-pkg)
 ```
 
 **README 增强建议（去 GitHub 时顺带做）：**
@@ -294,4 +292,3 @@ Dsh 桌面版 —— 在本地一键运行 DeepSeek Harness，无需安装 Node.
 1. **小红书**：到创作者中心草稿箱 review 并发（正文我已写好，含 GitHub 链接）。
 2. **知乎**：完成账号激活（知乎网页端绑定/升级到可写），之后我可立即代发已备好的回答草稿。
 3. **HN / Reddit / V2EX / 知乎文章版**：正文均已写好（见本文档相关小节），登录后粘贴发布即可。
-

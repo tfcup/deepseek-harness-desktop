@@ -1,5 +1,9 @@
 # DeepSeek Harness Desktop（macOS ARM64）设计方案
 
+> **历史设计说明：** 当前实现已经收敛为单一 Desktop 更新链。Runtime 只作为 Desktop
+> Release 的内置构建产物，不再提供独立 Channel、Runtime Release 或用户更新入口；以
+> [ARCHITECTURE.md](ARCHITECTURE.md) 和当前工作流为准。下文保留用于记录早期方案演进。
+
 > 目标：基于 `hairyf/deepseek-harness-desktop` 的思路，构建一个可长期维护、可自动跟进官方更新、可独立扩展、可直接分发给其他用户使用的 macOS Apple Silicon 桌面应用。
 
 ---

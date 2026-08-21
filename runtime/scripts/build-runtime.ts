@@ -17,7 +17,7 @@
 //! ```
 //!
 //! 用法：
-//!   node scripts/build-runtime.ts [--channel dev|beta|stable] [--version <v>] [--no-zip]
+//!   node scripts/build-runtime.ts [--version <v>] [--no-zip]
 //!                                [--dsh-base <dir>] [--out <dir>]
 //!   # DSH_BASE 环境变量可替代 --dsh-base（默认从 PATH 解析全局 dsh）
 //!   # 输出：runtime/dist/runtime-<version>-arm64.zip + manifest.json（--no-zip 时仅 staging）
@@ -80,27 +80,20 @@ function today(): string {
   return `${d.getFullYear()}.${p(d.getMonth() + 1)}.${p(d.getDate())}`;
 }
 
-/** 生成 runtimeVersion：--version 或 YYYY.MM.DD.N（当日序号，对齐桌面 manager） */
-function nextVersion(outDir: string): string {
+/**
+ * 生成 Runtime 版本：显式值优先，否则使用 `YYYY.MM.DD.<build-id>`。
+ *
+ * CI 的输出目录每次都是空的，不能靠扫描 dist 计算“当日第几个”，否则同一天的
+ * 多次构建都会得到 `.1`，App 会误判为相同 Runtime 并跳过新版 Harness。GitHub
+ * 使用仓库内唯一的 run id，本地构建使用毫秒时间戳，保证 manifest 版本随构建变化。
+ */
+function nextVersion(): string {
   const explicit = arg("--version");
-  if (explicit) return explicit;
-  const t = today();
-  let seq = 1;
-  if (existsSync(outDir)) {
-    for (const f of readFileSyncList(outDir)) {
-      const m = /^runtime-(\d{4}\.\d{2}\.\d{2}\.(\d+))-arm64\.zip$/.exec(basename(f));
-      if (m && m[1].startsWith(t)) seq = Math.max(seq, Number(m[2]) + 1);
-    }
+  const sequence = explicit || `${today()}.${process.env.GITHUB_RUN_ID?.trim() || Date.now()}`;
+  if (!/^\d{4}\.\d{2}\.\d{2}\.[1-9]\d*$/.test(sequence)) {
+    throw new Error(`Runtime 版本格式无效: ${sequence}`);
   }
-  return `${t}.${seq}`;
-}
-
-function readFileSyncList(dir: string): string[] {
-  return ([] as string[]).concat(
-    ...readdirSync(dir, { withFileTypes: true }).map((e) =>
-      e.isDirectory() ? readFileSyncList(join(dir, e.name)) : [join(dir, e.name)],
-    ),
-  );
+  return sequence;
 }
 
 /**
@@ -186,11 +179,10 @@ function dirSizeKb(dir: string): number {
 }
 
 function main(): void {
-  const channel = arg("--channel", "dev");
   const noZip = process.argv.includes("--no-zip");
   // 绝对化输出目录：zip 的 cwd 是 tmpdir，相对路径会导致输出文件找不到
   const outDir = resolve(arg("--out", join(RUNTIME_DIR, "dist")));
-  const version = nextVersion(outDir);
+  const version = nextVersion();
   const dshBase = resolveDshBase();
   const harnessVersion = packageVersion(join(dshBase, "node_modules", "@deepseek-ai", "dsh"));
   const extensionVersion = packageVersion(join(EXTENSIONS_SRC, BUNDLE_PACKAGE));
@@ -200,7 +192,7 @@ function main(): void {
   const staging = join(tmpdir(), `runtime-${version}`);
   rmSync(staging, { recursive: true, force: true });
 
-  console.log(`[build] runtimeVersion=${version} channel=${channel}`);
+  console.log(`[build] runtimeVersion=${version}`);
   console.log(`[build] harness=${harnessVersion} extension=${extensionVersion} node=${nodeVersion}`);
   console.log(`[build] dsh-base=${dshBase}`);
 
@@ -245,19 +237,16 @@ function main(): void {
   }
   console.log(`[build] extension pack → ${extDir}（${EXTENSION_PACKAGES.length} 包）`);
 
-  // 4) 初始 manifest（sha256/url 在 zip 后回填）
+  // 4) 初始 manifest（zip 生成后回填 sha256）
   const manifest = {
     schemaVersion: 1,
-    channel,
     runtimeVersion: version,
     harnessVersion,
     extensionVersion,
     nodeVersion,
     platform: "darwin",
     arch: "arm64",
-    url: "",
     sha256: "",
-    minimumDesktopVersion: "0.1.0",
     publishedAt: new Date().toISOString(),
   };
   writeFileSync(join(staging, ".dsh-desktop", "manifest.json"), JSON.stringify(manifest, null, 2));
@@ -273,7 +262,6 @@ function main(): void {
   rmSync(zipPath, { force: true });
   execFileSync("zip", ["-rq", zipPath, basename(staging)], { cwd: tmpdir() });
   const sha256 = createHash("sha256").update(readFileSync(zipPath)).digest("hex");
-  manifest.url = `https://github.com/tfcup/deepseek-harness-desktop/releases/download/runtime-${version}/runtime-${version}-arm64.zip`;
   manifest.sha256 = sha256;
   writeFileSync(join(staging, ".dsh-desktop", "manifest.json"), JSON.stringify(manifest, null, 2));
   writeFileSync(join(outDir, `runtime-${version}-arm64.zip.sha256`), `${sha256}  ${basename(zipPath)}\n`);

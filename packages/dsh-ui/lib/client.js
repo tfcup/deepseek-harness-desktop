@@ -1,8 +1,7 @@
 // dsh-ui 客户端 bundle（浏览器侧，官方 wire 格式：__ModuleLoader__.load）。
 //
 // 这个插件只通过 DeepSeek Harness 的公开 slot 扩展界面：
-//   - sidebar.footer.action：保留桌面工具入口；
-//   - settings.general.item：在 Harness 自带“设置 > 常规”中提供 App 更新入口。
+//   - settings.general.item：在 Harness 自带“设置 > 常规”中提供唯一的 App 更新入口。
 //
 // Harness 页面运行在 127.0.0.1 iframe 中，不能直接调用 Tauri API。更新操作通过
 // postMessage 发给桌面父窗口；父窗口必须校验 iframe window 和 origin 后才会执行。
@@ -217,24 +216,6 @@ window.__ModuleLoader__.load({
 
       ensureStyles();
       registerLocale(ctx);
-
-      slots.inject("sidebar.footer.action", function registerDesktopSettingsAction() {
-        slots.register(
-          { name: "sidebar.footer.action", id: "dsh-desktop-settings" },
-          function DesktopSettingsButton() {
-            return React.createElement(
-              "button",
-              {
-                type: "button",
-                onClick: function openDesktopSettings() {
-                  window.parent.postMessage({ type: "dsh-desktop:open-settings" }, "*");
-                },
-              },
-              "⚙ 桌面设置",
-            );
-          },
-        );
-      });
 
       slots.inject("settings.general.item", function registerDesktopUpdateRow() {
         slots.register(

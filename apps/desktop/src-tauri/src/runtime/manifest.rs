@@ -1,7 +1,7 @@
-//! Runtime Manifest（设计文档 §7 / §14 / §26）。
+//! 内置 Runtime Manifest 与本地激活指针。
 //!
-//! 一次 Runtime 发布是一个完整发行单元，因此 Desktop 不应只比较 Harness 版本，
-//! 而应比较整个 `runtimeVersion`。
+//! Runtime 随 Desktop Release 分发；这里保留独立版本是为了在 App 更新后安全切换、
+//! 健康检查失败时回滚，而不是向用户提供第二套更新通道。
 
 use crate::config;
 use serde::{Deserialize, Serialize};
@@ -9,34 +9,29 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::{AppHandle, Runtime};
 
-/// 发布通道（§9 / §26）
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Channel {
-    Dev,
-    Beta,
-    Stable,
-}
-
-/// Runtime Manifest（§7 字段全集）
+/// Runtime Manifest。新文件使用 camelCase，与构建产物一致；字段 alias 兼容旧版
+/// Desktop 已经写入的 snake_case 本地清单。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RuntimeManifest {
+    #[serde(alias = "schema_version")]
     pub schema_version: u32,
-    pub channel: Channel,
     /// Runtime 版本（独立发行单元，形如 `2026.08.15.1`）
+    #[serde(alias = "runtime_version")]
     pub runtime_version: String,
     /// 官方 @deepseek-ai/dsh 版本（如 `0.1.0-rc.12`）
+    #[serde(alias = "harness_version")]
     pub harness_version: String,
-    /// Extension Pack 版本（Phase 3 起填充）
+    /// Desktop Extension Pack 版本。
+    #[serde(alias = "extension_version")]
     pub extension_version: String,
-    /// Node 版本（§15 修订：本机 Node 的实际版本，读取失败时回退支持基线）
+    /// 构建 Runtime 时使用的 Node 兼容基线。
+    #[serde(alias = "node_version")]
     pub node_version: String,
     pub platform: String,
     pub arch: String,
-    /// Runtime 产物下载地址（Phase 4 发布时填充，本地为空）
-    pub url: String,
     pub sha256: String,
-    pub minimum_desktop_version: String,
+    #[serde(alias = "published_at")]
     pub published_at: String,
 }
 
@@ -45,8 +40,7 @@ impl RuntimeManifest {
         config::get_runtime_current_json(app_handle)
     }
 
-    /// Phase 1（Runtime 更新/回滚）使用
-    #[allow(dead_code)]
+    /// 上一份成功 Runtime 的指针路径，供自动回滚使用。
     pub fn previous_path<R: Runtime>(app_handle: &AppHandle<R>) -> PathBuf {
         config::get_runtime_previous_json(app_handle)
     }
@@ -56,8 +50,7 @@ impl RuntimeManifest {
         Self::load_file(&Self::current_path(app_handle))
     }
 
-    /// 读取上一个 Runtime manifest（回滚用，§14）。Phase 1 使用
-    #[allow(dead_code)]
+    /// 读取上一个成功 Runtime manifest。
     pub fn load_previous<R: Runtime>(app_handle: &AppHandle<R>) -> Option<Self> {
         Self::load_file(&Self::previous_path(app_handle))
     }
@@ -76,8 +69,7 @@ impl RuntimeManifest {
         write_atomic(&path, &json)
     }
 
-    /// 将当前 manifest 存档为 previous（§14 更新成功时：old current -> previous）。Phase 1 使用
-    #[allow(dead_code)]
+    /// 激活新版前将 current 原子存档为 previous。
     pub fn archive_current_as_previous<R: Runtime>(
         &self,
         app_handle: &AppHandle<R>,
@@ -96,30 +88,57 @@ impl RuntimeManifest {
         write_atomic(&path, &json)
     }
 
-    /// 读取版本目录内的 manifest.json（`runtime/versions/<v>/manifest.json`）
-    pub fn load_version<R: Runtime>(
-        app_handle: &AppHandle<R>,
-        version: &str,
-    ) -> Option<Self> {
-        let path = config::get_runtime_versions_dir(app_handle)
-            .join(version)
-            .join("manifest.json");
-        Self::load_file(&path)
+    /// 校验来自 App Bundle 的清单，避免非法版本成为目录名或加载错误架构产物。
+    pub fn validate_bundled(&self) -> Result<(), String> {
+        if self.schema_version != 1 {
+            return Err(format!("不支持的 Runtime manifest schema：{}", self.schema_version));
+        }
+        version_parts(&self.runtime_version)
+            .ok_or_else(|| format!("Runtime 版本格式无效：{}", self.runtime_version))?;
+        if self.harness_version.trim().is_empty() || self.extension_version.trim().is_empty() {
+            return Err("Runtime manifest 缺少 Harness 或 Extension Pack 版本".to_string());
+        }
+        let (platform, arch) = platform_ids();
+        if self.platform != platform || self.arch != arch {
+            return Err(format!(
+                "Runtime 平台不匹配：需要 {platform}/{arch}，收到 {}/{}",
+                self.platform, self.arch
+            ));
+        }
+        if self.sha256.len() != 64 || !self.sha256.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err("Runtime manifest SHA256 格式无效".to_string());
+        }
+        Ok(())
     }
 
-    /// 比较两个 Runtime 版本字符串（`YYYY.MM.DD.N` 数值段比较）。
-    /// 返回 `a` 是否严格大于 `b`（Phase 1 更新判断用）。
-    #[allow(dead_code)]
+    /// 按 `YYYY.MM.DD.N` 的数值段比较，非法版本永远不会被判定为更新。
     pub fn version_gt(a: &str, b: &str) -> bool {
-        let pa: Vec<u64> = a.split('.').filter_map(|s| s.parse().ok()).collect();
-        let pb: Vec<u64> = b.split('.').filter_map(|s| s.parse().ok()).collect();
-        for (x, y) in pa.iter().zip(pb.iter()) {
-            if x != y {
-                return x > y;
-            }
+        match (version_parts(a), version_parts(b)) {
+            (Some(left), Some(right)) => left > right,
+            _ => false,
         }
-        pa.len() > pb.len()
     }
+}
+
+/// 严格解析 Runtime 版本；固定四段可同时阻止路径穿越和模糊比较。
+fn version_parts(value: &str) -> Option<[u64; 4]> {
+    let raw: Vec<&str> = value.split('.').collect();
+    if raw.len() != 4 || raw[0].len() != 4 || raw[1].len() != 2 || raw[2].len() != 2 {
+        return None;
+    }
+    if raw.iter().any(|part| part.is_empty() || !part.bytes().all(|b| b.is_ascii_digit())) {
+        return None;
+    }
+    let parts = [
+        raw[0].parse().ok()?,
+        raw[1].parse().ok()?,
+        raw[2].parse().ok()?,
+        raw[3].parse().ok()?,
+    ];
+    if !(1..=12).contains(&parts[1]) || !(1..=31).contains(&parts[2]) || parts[3] == 0 {
+        return None;
+    }
+    Some(parts)
 }
 
 /// 原子写入：先写临时文件再 rename，避免写一半崩溃留下损坏的 manifest
@@ -187,12 +206,47 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 mod tests {
     use super::*;
 
+    /** 创建与当前测试平台匹配的有效内置清单。 */
+    fn valid_manifest() -> RuntimeManifest {
+        let (platform, arch) = platform_ids();
+        RuntimeManifest {
+            schema_version: 1,
+            runtime_version: "2026.08.21.1".to_string(),
+            harness_version: "0.1.0-rc.7".to_string(),
+            extension_version: "0.1.0".to_string(),
+            node_version: "22.22.0".to_string(),
+            platform,
+            arch,
+            sha256: "a".repeat(64),
+            published_at: "2026-08-21T00:00:00Z".to_string(),
+        }
+    }
+
     #[test]
     fn version_gt_compares_numeric_segments() {
         assert!(RuntimeManifest::version_gt("2026.08.16.1", "2026.08.15.1"));
         assert!(RuntimeManifest::version_gt("2026.08.15.2", "2026.08.15.1"));
         assert!(!RuntimeManifest::version_gt("2026.08.15.1", "2026.08.15.1"));
         assert!(!RuntimeManifest::version_gt("2026.08.15.1", "2026.08.16.1"));
+        assert!(!RuntimeManifest::version_gt("../2026.08.16.1", "2026.08.15.1"));
+        assert!(!RuntimeManifest::version_gt("2026.8.16.1", "2026.08.15.1"));
+    }
+
+    #[test]
+    fn bundled_manifest_rejects_unsafe_version() {
+        let mut manifest = valid_manifest();
+        assert!(manifest.validate_bundled().is_ok());
+        manifest.runtime_version = "../../Library".to_string();
+        assert!(manifest.validate_bundled().is_err());
+    }
+
+    #[test]
+    fn camel_case_manifest_preserves_build_version() {
+        let manifest = valid_manifest();
+        let json = serde_json::to_string(&manifest).unwrap();
+        assert!(json.contains("\"runtimeVersion\":\"2026.08.21.1\""));
+        let parsed: RuntimeManifest = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.runtime_version, manifest.runtime_version);
     }
 
     #[test]

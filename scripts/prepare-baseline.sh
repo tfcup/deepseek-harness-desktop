@@ -2,7 +2,9 @@
 # 准备方案 B 基线资源（等价于 desktop-release.yml 的"准备基线"步骤，本地可运行）
 #
 # 产物：apps/desktop/src-tauri/resources/baseline/
-#   runtime.zip   — Baseline Runtime（npm dsh 基座 → build-runtime.ts 产物，已瘦身）
+#   runtime.zip          — Baseline Runtime
+#   manifest.json        — 构建时的精确 Runtime/Harness 版本
+#   runtime.zip.sha256   — App 启动前的完整性校验
 #
 # 说明（§15 修订）：Node 不再内置——应用直接使用用户本机 Node（缺失即报错）。
 #
@@ -31,11 +33,14 @@ npm install --no-audit --no-fund
 # [2/2] 构建 Runtime zip 并复制为 baseline
 echo "[2/2] 构建 Baseline Runtime…"
 cd "$REPO_ROOT"
-OUT=$(DSH_BASE="$BASE_DIR" node runtime/scripts/build-runtime.ts --channel dev --out runtime/dist)
+OUT=$(DSH_BASE="$BASE_DIR" node runtime/scripts/build-runtime.ts --out runtime/dist)
 echo "$OUT" | tail -4
 ZIP=$(ls -t runtime/dist/runtime-*-arm64.zip | head -1)
 [[ -n "$ZIP" ]] || { echo "✗ 未生成 runtime zip" >&2; exit 1; }
 cp "$ZIP" "$BASELINE_DIR/runtime.zip"
+cp "${ZIP}.sha256" "$BASELINE_DIR/runtime.zip.sha256"
+VERSION=$(basename "$ZIP" | sed -E 's/runtime-([0-9.]+)-arm64\.zip/\1/')
+cp "runtime/dist/manifest-${VERSION}.json" "$BASELINE_DIR/manifest.json"
 echo "    runtime.zip ← $ZIP"
 
 echo ""

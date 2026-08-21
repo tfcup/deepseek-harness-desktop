@@ -1,5 +1,5 @@
-# Runtime 构建 + Compatibility Gate（设计文档 §8 / §11 / §12）：固定 Harness 版本、
-# 捆绑 Extension Pack、构建 zip、验证、发布 dev channel + GitHub Release（tag runtime-<v>）
+# Runtime 构建 + Compatibility Gate：固定 Harness 版本、捆绑 Extension Pack、构建并验证，
+# 随后把同一份产物交给 Desktop Release。只有完整桌面发布成功才推进已知版本。
 name: runtime-build
 
 on:
@@ -9,19 +9,44 @@ on:
         description: "@deepseek-ai/dsh 版本（如 0.1.0-rc.6，留空则安装 latest）"
         required: false
         default: ""
-      channel:
-        description: "发布通道"
-        required: false
-        default: "dev"
-        type: choice
-        options: [dev, beta, stable]
-
 permissions:
   contents: write
 
+# 同一 Harness 版本只允许一条发布链运行；排队任务会在前一条结束后重新读取
+# .known-version，成功版本直接跳过，失败版本则继续重试。
+concurrency:
+  group: runtime-build-${{ inputs.harness_version || 'latest' }}
+  cancel-in-progress: false
+
 jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.compare.outputs.should_build }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+
+      - name: 跳过已经完整发布的 Harness 版本
+        id: compare
+        env:
+          REQUESTED_VERSION: ${{ inputs.harness_version }}
+        run: |
+          KNOWN_VERSION="$(tr -d '[:space:]' < runtime/.known-version)"
+          if [[ -n "$REQUESTED_VERSION" && "$REQUESTED_VERSION" == "$KNOWN_VERSION" ]]; then
+            echo "Harness $REQUESTED_VERSION 已完成 Desktop Release，跳过重复任务"
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          fi
+
   build-and-verify:
+    needs: preflight
+    if: ${{ needs.preflight.outputs.should_build == 'true' }}
     runs-on: macos-14
+    outputs:
+      harness_version: ${{ steps.build.outputs.harness_version }}
     steps:
       # v5 系列使用 Node 24，避免后续 Runtime 构建继续出现 Node 20 弃用警告。
       - uses: actions/checkout@v5
@@ -31,7 +56,7 @@ jobs:
           node-version: 24
           package-manager-cache: false
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v5
         with:
           version: 11
 
@@ -46,8 +71,9 @@ jobs:
           echo "DSH_BASE_DIR=$RUNNER_TEMP/dsh-base" >> "$GITHUB_ENV"
 
       - name: 构建 Runtime（zip + sha256 + manifest）
+        id: build
         run: |
-          OUT=$(node runtime/scripts/build-runtime.ts --channel ${{ inputs.channel }} --dsh-base "$DSH_BASE_DIR")
+          OUT=$(node runtime/scripts/build-runtime.ts --dsh-base "$DSH_BASE_DIR")
           echo "$OUT"
           echo "STAGING_DIR=$(echo "$OUT" | grep '^STAGING=' | cut -d= -f2)" >> "$GITHUB_ENV"
           VERSION=$(echo "$OUT" | grep '^\[build\] runtimeVersion=' | sed -E 's/.*runtimeVersion=([0-9.]+).*/\1/')
@@ -58,12 +84,13 @@ jobs:
           fi
           echo "RUNTIME_VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "HARNESS_VERSION=$HARNESS_VERSION" >> "$GITHUB_ENV"
+          echo "harness_version=$HARNESS_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Compatibility Gate（全新 DSH_HOME：扩展加载 → 启动 → 引导图 → client.js）
         run: node runtime/scripts/verify-runtime.ts --runtime "$STAGING_DIR"
 
       - name: 上传产物（zip + sha256 + manifest）
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: runtime-dist
           path: |
@@ -72,29 +99,30 @@ jobs:
             runtime/dist/manifest-*.json
           retention-days: 14
 
-      - name: 发布到 channel（updater/channels/<channel>.json）
+  desktop-release:
+    needs: build-and-verify
+    uses: ./.github/workflows/desktop-release.yml
+    with:
+      runtime_artifact: runtime-dist
+    secrets: inherit
+
+  confirm-upstream-version:
+    needs: [build-and-verify, desktop-release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+
+      - name: Desktop Release 成功后推进已知 Harness 版本
         run: |
-          MANIFEST=$(ls runtime/dist/manifest-*.json | head -1)
-          node runtime/scripts/publish-runtime.ts --channel ${{ inputs.channel }} --manifest "$MANIFEST"
-          # 仅在 Compatibility Gate 与发布均成功后推进已知版本；失败构建会在下次定时任务重试。
-          printf '%s\n' "$HARNESS_VERSION" > runtime/.known-version
-          if [[ -n "$(git status --porcelain updater/channels runtime/.known-version)" ]]; then
+          # 最后写入可确保 Runtime 或 Desktop 任一步失败时，上游监控仍会再次触发该版本。
+          git pull --ff-only origin main
+          printf '%s\n' "${{ needs.build-and-verify.outputs.harness_version }}" > runtime/.known-version
+          if [[ -n "$(git status --porcelain runtime/.known-version)" ]]; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add updater/channels runtime/.known-version
-            git commit -m "chore(updater): publish ${{ inputs.channel }} channel runtime ${{ env.RUNTIME_VERSION }}"
+            git add runtime/.known-version
+            git commit -m "chore(runtime): confirm Harness ${{ needs.build-and-verify.outputs.harness_version }}"
             git push
           fi
-
-      - name: 创建 GitHub Release（tag runtime-${{ env.RUNTIME_VERSION }}）
-        if: github.event_name == 'workflow_dispatch'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: runtime-${{ env.RUNTIME_VERSION }}
-          name: "Harness Runtime ${{ env.RUNTIME_VERSION }}"
-          files: |
-            runtime/dist/*.zip
-            runtime/dist/*.sha256
-            runtime/dist/manifest-*.json
-          draft: false
-          prerelease: ${{ inputs.channel != 'stable' }}

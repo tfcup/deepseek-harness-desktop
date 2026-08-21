@@ -44,7 +44,7 @@
     "category": "DeveloperTool",
     "copyright": "Copyright © 2026 deepseek-harness-desktop contributors",
     "shortDescription": "Desktop application for DeepSeek Harness",
-    "longDescription": "A native desktop application for running DeepSeek Harness (dsh) locally with one-click install and zero configuration.",
+    "longDescription": "A native desktop application for running a release-verified DeepSeek Harness Runtime locally.",
     "macOS": {
       "entitlements": "./Entitlements.plist",
       "minimumSystemVersion": "11.0"

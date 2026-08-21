@@ -1,6 +1,6 @@
 import { ExternalLink, Heart } from "lucide-react";
 import { useI18n } from "../i18n/context";
-import { GITHUB_ISSUES, GITHUB_RELEASES, GITHUB_REPO, PKG_REPO, UPSTREAM_REPO } from "../lib/links";
+import { GITHUB_ISSUES, GITHUB_RELEASES, GITHUB_REPO, UPSTREAM_REPO } from "../lib/links";
 import { GitHubIcon } from "./GitHubIcon";
 
 export function Footer() {
@@ -51,7 +51,6 @@ export function Footer() {
             title={t("footer.related")}
             links={[
               { label: t("footer.relatedLinks.upstream"), href: UPSTREAM_REPO, external: true },
-              { label: t("footer.relatedLinks.pkg"), href: PKG_REPO, external: true },
             ]}
           />
         </div>

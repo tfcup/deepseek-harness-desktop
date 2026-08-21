@@ -1,7 +1,7 @@
 //! dsh-ui 客户端插件行为测试（无浏览器，stub 环境）。
 //!
-//! 验证现有桌面工具入口和新增 Harness 设置更新行都通过官方 slot 注册，
-//! 并验证设置行只发送版本化 postMessage 请求，不直接接触 Tauri API。
+//! 验证 Harness 设置更新行通过官方 slot 注册，并且只发送版本化 postMessage
+//! 请求，不注册已删除的桌面工具入口，也不直接接触 Tauri API。
 
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -116,7 +116,7 @@ async function main(): Promise<void> {
 
   const slots = {
     inject: (slotName: string, callback: () => void) => {
-      if (slotName === "sidebar.footer.action" || slotName === "settings.general.item") callback();
+      if (slotName === "settings.general.item") callback();
     },
     register: (
       definition: { name: string; id: string; order?: number },
@@ -132,12 +132,10 @@ async function main(): Promise<void> {
     effect: (effect: () => unknown) => effect(),
   };
 
-  console.log("[1] 注册桌面工具入口和 Harness 常规设置更新行…");
+  console.log("[1] 只注册 Harness 常规设置中的 App 更新行…");
   moduleExports.apply(context);
-  if (registrations.length !== 2) fail(`slots.register 调用次数异常: ${registrations.length}`);
-  const settingsAction = registrations.find((item) => item.name === "sidebar.footer.action");
+  if (registrations.length !== 1) fail(`slots.register 调用次数异常: ${registrations.length}`);
   const updateRow = registrations.find((item) => item.name === "settings.general.item");
-  if (!settingsAction || settingsAction.id !== "dsh-desktop-settings") fail("桌面工具入口注册异常");
   if (!updateRow || updateRow.id !== "desktop-app-update" || updateRow.order !== 100) {
     fail("Harness 设置更新行注册异常");
   }
@@ -155,14 +153,7 @@ async function main(): Promise<void> {
     fail("发现更新时按钮未请求 install");
   }
 
-  console.log("[3] 原有桌面工具按钮行为保持不变…");
-  const actionElement = settingsAction.component({}) as StubElement;
-  (actionElement.props.onClick as (() => void) | undefined)?.();
-  if (!actions.some((message) => message.type === "dsh-desktop:open-settings")) {
-    fail("原有桌面工具按钮未发送 open-settings");
-  }
-
-  console.log("[4] React 不可用时优雅降级…");
+  console.log("[3] React 不可用时优雅降级…");
   const exportsWithoutReact = entry.factory(() => {
     throw new Error("react not available");
   }) as { apply: (ctx: unknown) => void };

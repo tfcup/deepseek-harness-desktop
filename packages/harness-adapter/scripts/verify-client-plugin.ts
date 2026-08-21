@@ -133,7 +133,7 @@ async function main(): Promise<void> {
     console.log("\n[3] 拉取客户端 bundle…");
     const markers: Record<string, string[]> = {
       "dsh-theme": ["__ModuleLoader__.load", "dsh-desktop"],
-      "dsh-ui": ["__ModuleLoader__.load", "sidebar.footer.action", "settings.general.item"],
+      "dsh-ui": ["__ModuleLoader__.load", "settings.general.item"],
     };
     for (const clientId of ["dsh-theme", "dsh-ui"] as const) {
       const entry = boot.entries!.find((e) => e.id === clientId)!;

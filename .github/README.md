@@ -1,25 +1,14 @@
 # .github/workflows
 
-CI / CD 流水线（设计文档 §8 / §10 / §11 / §12）。
+| workflow | 触发 | 职责 |
+|---|---|---|
+| `upstream-watch.yml` | 每小时 + 手动 | 比较 npm 最新 Harness 与 `runtime/.known-version`，发现新版后触发 Runtime 构建 |
+| `runtime-build.yml` | upstream-watch + 手动 | 固定 Harness → 构建 Runtime → Compatibility Gate → 调用 Desktop Release → 成功后确认已知版本 |
+| `desktop-release.yml` | runtime-build + tag + 手动 | 使用已验证 Artifact 或已确认 Harness 构建完整 DMG、Updater 包、签名和 `latest.json` |
+| `desktop-test.yml` | push / PR | Rust、前端和 Extension Pack 质量门禁 |
 
-| workflow | 触发 | 职责 | 状态 |
-|---|---|---|---|
-| `upstream-watch.yml` | cron 每小时（第 17 分）+ 手动 | `npm view @deepseek-ai/dsh version` vs `runtime/.known-version`，有新版 → dispatch runtime-build | ✅ 已实现 |
-| `runtime-build.yml` | workflow_dispatch（upstream-watch 自动触发） | 固定 dsh 版本 → 构建 runtime zip+sha256+manifest → Compatibility Gate（verify-runtime）→ 发布 channel → GitHub Release（tag `runtime-<v>`） | ✅ 已实现（macOS runner） |
-| `runtime-promote.yml` | workflow_dispatch | dev → beta → stable 通道提升（校验方向 + 生成目标通道文件） | ✅ 已实现 |
-| `desktop-test.yml` | push / PR（main） | cargo check/test + 前端 build + Extension 行为测试 | ✅ 已实现 |
-| `desktop-release.yml` | tag `v*` / workflow_dispatch（version 可空） | 空版本自动 patch +1 → DMG + `.app.tar.gz` + `.sig` + `latest.json` → Release | ✅ 已实现 |
+Runtime 构建不会创建独立 GitHub Release。自动流水线只有在 Desktop Release 成功后才更新
+`.known-version`，因此任何构建或发布失败都会在下一轮上游检查时得到重试机会。
 
-## 本地演练
-
-runtime 流水线可在本机完整跑通（无需 GitHub）：
-
-```sh
-# 构建（zip + sha256 + manifest）→ Compatibility Gate → 发布 dev channel
-cd runtime
-node scripts/build-runtime.ts --channel dev
-node scripts/verify-runtime.ts --runtime <STAGING>
-node scripts/publish-runtime.ts --channel dev --manifest dist/manifest-*.json
-```
-
-> `runtime/.dsh-base/` 与 `runtime/dist/` 为 CI/本地构建产物，不入库（.gitignore 覆盖）。
+手动执行 `desktop-release` 时，`version` 留空会对最高 `vX.Y.Z` 自动增加 patch；
+填写版本则严格使用指定版本。

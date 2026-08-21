@@ -1,29 +1,23 @@
 # runtime
 
-Harness Runtime 构建工程（设计文档 §5 / §6 / §7）。独立于 Desktop App 版本，一个 Runtime
-是完整发行单元：
+Desktop Release 的 Harness Runtime 构建工程。Runtime 不是用户可单独订阅的更新产品，
+而是完整 Desktop App 的内部载荷：
 
 ```text
-Harness + Extension Pack + Node + Compatibility Fix
+@deepseek-ai/dsh + Desktop Extension Pack + Compatibility Fix
 ```
 
-## 目录规划
+`build-runtime.ts` 固定 Harness 版本并生成 ZIP、manifest 和 SHA256；
+`verify-runtime.ts` 使用全新 `DSH_HOME` 执行 Compatibility Gate。
+
+自动发布顺序为：
 
 ```text
-runtime/
-├── package.json        # 固定 @deepseek-ai/dsh 版本 + 安装 Extension Pack
-├── pnpm-lock.yaml
-├── scripts/
-│   ├── detect-upstream.ts   # 检测官方新版本（Phase 4）
-│   ├── build-runtime.ts     # 构建 runtime zip + sha256 + manifest（Phase 4）
-│   ├── verify-runtime.ts    # 本地验证（Phase 4）
-│   └── publish-runtime.ts   # 发布到 channel（Phase 4）
-└── tests/
-    ├── smoke/               # 启动 + health check（Phase 4）
-    ├── api/                 # API compatibility（Phase 4）
-    └── compatibility/       # UI / Client Plugin / workflow（Phase 4）
+upstream-watch
+  → runtime-build
+  → Compatibility Gate
+  → desktop-release（嵌入同一 Artifact）
+  → 更新 runtime/.known-version
 ```
 
-## 状态
-
-- [ ] Phase 4：runtime 构建脚本与 Compatibility Gate
+Runtime 产物只在 GitHub Actions 内部传递，不创建独立 Release 或更新通道。

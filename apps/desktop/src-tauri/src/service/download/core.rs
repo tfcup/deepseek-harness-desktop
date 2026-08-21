@@ -1,72 +1,9 @@
-use futures_util::StreamExt;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::service::download::ProgressTracker;
 use tauri::Runtime;
-
-/// 下载文件到内存
-///
-/// # 参数
-/// - `tracker`: 进度追踪器
-/// - `url`: 要下载的文件 URL
-///
-/// # 返回
-/// 成功返回文件内容 `Ok(Vec<u8>)`，失败返回错误信息
-pub async fn download_file<'a, R: Runtime>(
-    tracker: &'a ProgressTracker<'a, R>,
-    url: String,
-) -> Result<Vec<u8>, String> {
-    log::info!("Starting file download: {}", url);
-    // 创建具备 User-Agent 的客户端
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (deepseek-harness-desktop)")
-        .connect_timeout(std::time::Duration::from_secs(20))
-        .build()
-        .map_err(|e| {
-            log::error!("Failed to create HTTP client: {}", e);
-            e.to_string()
-        })?;
-
-    let res = client.get(&url).send().await.map_err(|e| {
-        log::error!("Download request failed: {}", e);
-        e.to_string()
-    })?;
-
-    if !res.status().is_success() {
-        log::error!("Download failed with HTTP status: {}", res.status());
-        return Err(format!("Download failed: HTTP {}", res.status()));
-    }
-
-    // 下载流处理并写入内存
-    let total_size = res.content_length().unwrap_or(0);
-    log::debug!("File size: {} bytes", total_size);
-    let mut downloaded: u64 = 0;
-    let mut stream = res.bytes_stream();
-    let mut buffer = Vec::new();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| {
-            log::error!("Download stream read error: {}", e);
-            e.to_string()
-        })?;
-        buffer.extend_from_slice(&chunk);
-        downloaded += chunk.len() as u64;
-        let progress_pct = (downloaded as f64 / total_size as f64) * 100.0;
-        tracker.update(
-            progress_pct,
-            format!(
-                "已下载 {:.1} MB / {:.1} MB",
-                downloaded as f64 / 1_000_000.0,
-                total_size as f64 / 1_000_000.0
-            ),
-            format!("Download {}", url),
-        );
-    }
-
-    log::info!("Download completed, {} bytes total", downloaded);
-    Ok(buffer)
-}
 
 /// 删除目录并等待 Windows 文件锁释放。
 ///
@@ -209,68 +146,4 @@ pub fn ensure_extract<'a, R: Runtime>(
     }
 
     Ok(())
-}
-
-/// GitHub API 地址（未认证限流 60 次/小时/IP，仅供每次启动检查一次）
-const DSH_PKG_GITHUB_API: &str = "https://api.github.com/repos/hairyf/deepseek-harness-pkg";
-
-/// 最新 Harness 发行版信息（版本 tag + 对应 commit hash）
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct LatestDshPkg {
-    pub tag: String,
-    pub commit: String,
-}
-
-/// 查询 GitHub 上最新 Harness 发行版信息
-///
-/// 先取最新 release 的 tag_name，再通过 commits 端点把 tag 解析为 commit。
-/// 网络不可用或 API 限流时返回 Err，由调用方决定是否保留本地安装。
-pub async fn fetch_latest_dsh_pkg_info() -> Result<LatestDshPkg, String> {
-    let client = reqwest::Client::builder()
-        .user_agent("deepseek-harness-desktop")
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
-
-    // 1. 最新 release 的 tag_name
-    let release: serde_json::Value = client
-        .get(format!("{}/releases/latest", DSH_PKG_GITHUB_API))
-        .send()
-        .await
-        .map_err(|e| format!("Failed to request latest release: {}", e))?
-        .error_for_status()
-        .map_err(|e| format!("Latest release request failed: {}", e))?
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse latest release response: {}", e))?;
-    let tag_name = release
-        .get("tag_name")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| "Missing tag_name in latest release response".to_string())?;
-
-    // 2. 通过 commits 端点把 tag 解析为 commit hash
-    let commit: serde_json::Value = client
-        .get(format!("{}/commits/{}", DSH_PKG_GITHUB_API, tag_name))
-        .send()
-        .await
-        .map_err(|e| format!("Failed to request release commit: {}", e))?
-        .error_for_status()
-        .map_err(|e| format!("Release commit request failed: {}", e))?
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse release commit response: {}", e))?;
-    let sha = commit
-        .get("sha")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| "Missing sha in release commit response".to_string())?;
-
-    Ok(LatestDshPkg {
-        tag: tag_name.to_string(),
-        commit: sha.to_string(),
-    })
-}
-
-/// 查询 GitHub 上最新 Harness 发行版对应的 commit hash
-pub async fn fetch_latest_dsh_pkg_commit() -> Result<String, String> {
-    fetch_latest_dsh_pkg_info().await.map(|info| info.commit)
 }

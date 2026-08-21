@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.13",
   "type": "module",
-  "description": "Desktop application for DeepSeek Harness (dsh) — one-click local install and launch, no Node.js setup required.",
+  "description": "Desktop application for DeepSeek Harness with bundled, release-verified Harness Runtime updates.",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",

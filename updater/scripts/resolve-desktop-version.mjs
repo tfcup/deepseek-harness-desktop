@@ -1,7 +1,7 @@
 //! 解析 Desktop Release 版本：手动值优先；留空时递增最新 vX.Y.Z tag 的补丁位。
 //!
 //! 用法：node updater/scripts/resolve-desktop-version.mjs [0.2.0|v0.2.0] [--allow-existing]
-//! 无参数时示例：v0.1.13 -> 0.1.14。runtime-* 等非桌面 tag 会被忽略。
+//! 无参数时示例：v0.1.13 -> 0.1.14。只识别严格的 vX.Y.Z Desktop tag。
 
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -40,7 +40,7 @@ function readConfiguredVersion() {
   return parsed;
 }
 
-/** 从 Git tag 中寻找最高的正式桌面版本，自动排除 runtime-* 等其他通道。 */
+/** 从 Git tag 中寻找最高的正式 Desktop 版本。 */
 function latestDesktopTag() {
   const output = execFileSync("git", ["tag", "--list", "v*"], {
     cwd: REPO_ROOT,

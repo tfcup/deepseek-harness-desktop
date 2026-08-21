@@ -44,7 +44,6 @@ jobs:
               ref: 'main',
               inputs: {
                 harness_version: '${{ steps.detect.outputs.upstream_version }}',
-                channel: 'dev',
               },
               headers: {
                 'X-GitHub-Api-Version': '2026-03-10',

@@ -1,15 +1,13 @@
-//! Harness Runtime 管理（设计文档 §6 / §7 / §13 / §14）。
+//! 随 Desktop Release 分发的 Harness Runtime 管理。
 //!
-//! Runtime 是与 Desktop App 版本完全分离的发行单元：
+//! Runtime 在内部保持版本化，以支持安全切换和自动回滚：
 //!
 //! ```text
-//! Harness + Node + Extension Pack + Compatibility Fix
+//! Harness + Extension Pack + Compatibility Fix
 //! ```
 //!
 //! - `manifest`：Runtime Manifest 定义、本地 `current.json` / `previous.json` 读写、版本比较。
-//! - `manager`：多版本管理、首次导入、本地 zip 安装（SHA256 → staging → 激活 → 健康检查 → 回滚）。
-//! - `update`：channel manifest 获取、更新检查、远程下载安装。
+//! - `manager`：旧目录迁移、内置 zip 校验、激活、健康检查与失败回滚。
 
 pub mod manager;
 pub mod manifest;
-pub mod update;

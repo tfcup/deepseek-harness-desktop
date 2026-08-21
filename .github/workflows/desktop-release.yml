@@ -4,6 +4,18 @@
 name: desktop-release
 
 on:
+  workflow_call:
+    inputs:
+      version:
+        description: "可选 Desktop 版本；留空自动递增 patch"
+        required: false
+        default: ""
+        type: string
+      runtime_artifact:
+        description: "同一次工作流中已通过 Compatibility Gate 的 Runtime Artifact 名称"
+        required: false
+        default: ""
+        type: string
   workflow_dispatch:
     inputs:
       version:
@@ -36,7 +48,7 @@ jobs:
 
       - name: 解析发布版本（手动值优先，空值自动递增 patch）
         env:
-          REQUESTED_VERSION: ${{ github.event_name == 'push' && github.ref_name || github.event.inputs.version }}
+          REQUESTED_VERSION: ${{ github.event_name == 'push' && github.ref_name || inputs.version || '' }}
         run: |
           EXTRA_ARGS=()
           # tag 触发时该版本自然已经存在；workflow_dispatch 手动值则必须高于最新 tag。
@@ -50,7 +62,7 @@ jobs:
           node-version: 24
 
       # pnpm 版本须与本地工具链一致（lockfile v9 + allowBuilds 为 pnpm 11 语义）
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v5
         with:
           version: 11
 
@@ -64,8 +76,16 @@ jobs:
             exit 1
           fi
 
-      # ---------- 方案 B：Baseline Runtime（§15 修订：Node 不内置，使用本机 Node） ----------
-      - name: 准备 Baseline Runtime（固定 dsh + Extension Pack → zip）
+      - name: 下载已验证的 Runtime Artifact
+        if: ${{ inputs.runtime_artifact != '' }}
+        uses: actions/download-artifact@v7
+        with:
+          name: ${{ inputs.runtime_artifact }}
+          path: runtime/dist
+
+      # 手动或 tag 发布没有前置 runtime-build，因此从已确认版本重新构建基线。
+      - name: 准备 Baseline Runtime（手动/tag 发布）
+        if: ${{ inputs.runtime_artifact == '' }}
         env:
           # npm 解析 dsh 的大型依赖图会超过 Node 默认约 2 GB 的 V8 堆上限；
           # macos-14 Runner 有 7 GB 内存，这里仅为该步骤提升至 4 GB。
@@ -88,15 +108,34 @@ jobs:
           npm install --no-audit --no-fund
           cd "$GITHUB_WORKSPACE"
           OUT=$(DSH_BASE="$RUNNER_TEMP/dsh-base" \
-            node runtime/scripts/build-runtime.ts --channel dev --out runtime/dist)
+            node runtime/scripts/build-runtime.ts --out runtime/dist)
           echo "$OUT"
           echo "STAGING_DIR=$(echo "$OUT" | grep '^STAGING=' | cut -d= -f2)" >> "$GITHUB_ENV"
-          mkdir -p apps/desktop/src-tauri/resources/baseline
-          cp runtime/dist/runtime-*-arm64.zip apps/desktop/src-tauri/resources/baseline/runtime.zip
         shell: bash
 
-      - name: Compatibility Gate（基线 Runtime 可用性）
+      - name: Compatibility Gate（手动/tag 基线 Runtime 可用性）
+        if: ${{ inputs.runtime_artifact == '' }}
         run: node runtime/scripts/verify-runtime.ts --runtime "$STAGING_DIR"
+
+      - name: 嵌入已验证的 Baseline Runtime
+        run: |
+          ZIP=$(find runtime/dist -maxdepth 1 -name 'runtime-*-arm64.zip' | head -1)
+          MANIFEST=$(find runtime/dist -maxdepth 1 -name 'manifest-*.json' | head -1)
+          SHA_FILE="${ZIP}.sha256"
+          if [[ -z "$ZIP" || -z "$MANIFEST" || ! -s "$SHA_FILE" ]]; then
+            echo "Runtime Artifact 缺少 zip、manifest 或 sha256" >&2
+            exit 1
+          fi
+          EXPECTED=$(awk '{print $1}' "$SHA_FILE")
+          ACTUAL=$(shasum -a 256 "$ZIP" | awk '{print $1}')
+          if [[ "$EXPECTED" != "$ACTUAL" ]]; then
+            echo "Runtime Artifact SHA256 校验失败" >&2
+            exit 1
+          fi
+          mkdir -p apps/desktop/src-tauri/resources/baseline
+          cp "$ZIP" apps/desktop/src-tauri/resources/baseline/runtime.zip
+          cp "$MANIFEST" apps/desktop/src-tauri/resources/baseline/manifest.json
+          cp "$SHA_FILE" apps/desktop/src-tauri/resources/baseline/runtime.zip.sha256
 
       # ---------- 签名与公证 ----------
       - name: 导入 Developer ID 证书到 Keychain
@@ -171,7 +210,7 @@ jobs:
             --out updater/dist/latest.json
 
       - name: 创建 GitHub Release（DMG + Updater 完整产物）
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ env.VERSION }}
           name: "DeepSeek Harness Desktop v${{ env.VERSION }}"
@@ -185,7 +224,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # 仓库同时发布 runtime-*，不能使用 releases/latest 作为 Desktop endpoint。
           # 固定 tag 只承载可覆盖的 latest.json，清单中的二进制仍指向不可变的版本 Release。
           if ! gh release view desktop-updater >/dev/null 2>&1; then
             gh release create desktop-updater \

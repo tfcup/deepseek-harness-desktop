@@ -37,7 +37,7 @@
 ## Features
 
 - **One-click local run** — The DMG bundles a prebuilt Baseline Runtime (Harness + Extension Pack); on first launch it is seeded offline and starts with zero downloads. Just have Node.js on your machine.
-- **Automatic upstream tracking** — A scheduled pipeline checks the official `@deepseek-ai/dsh` release every hour, builds and verifies a versioned Runtime, and publishes it to the `dev` channel. In-app Runtime updates install it with SHA-256 verification and one-click rollback.
+- **Automatic upstream tracking** — A scheduled pipeline builds and verifies every new official `@deepseek-ai/dsh`, then publishes a complete Desktop Release with that exact Runtime embedded.
 - **Customize without modifying upstream** — An Extension Pack (theme / UI / tools / integrations) is injected through the official extension mechanisms (`ctx.theme.register`, `ctx.slots`, `ctx.tools.register`, ...). No official file is ever patched.
 - **Data isolation** — A dedicated data directory (`~/Library/Application Support/Deepseek-Harness-Desktop/`) keeps app data separate from a CLI `dsh`'s `~/.dsh`. The app also re-launches its own isolated instance whenever it finds any listener on port 3080 — an external CLI dsh is stopped first, never adopted.
 - **Lightweight & native** — A Tauri 2 shell (system WebKit, not bundled Chromium): standard macOS titlebar with traffic lights, theme-colored titlebar, System theme sync, double-click to maximize.
@@ -60,7 +60,7 @@
    - Alternatively, **Right-click** the app → **Open** → **Open** (once) also works for the plain "unverified developer" warning.
 4. The app seeds the bundled Baseline Runtime and starts **offline** — the embedded Harness UI opens at `http://127.0.0.1:3080`.
 
-> Everything runs locally. Runtime (Harness + Extension Pack) updates use the configured channel. Desktop App updates are available in Harness **Settings → General → App Update** and are verified with the pinned Tauri updater key. Apple Developer ID signing/notarization is configured separately for public distribution.
+> Everything runs locally. Harness **Settings → General → App Update** is the only update entry. It installs a complete Desktop update verified with the pinned Tauri updater key; the new Harness Runtime is activated on relaunch with SHA-256 verification and automatic rollback.
 
 ### Requirements
 
@@ -71,41 +71,35 @@ The app **uses the Node.js installed on your machine** (resolved via PATH, the l
 
 ## Updates
 
-Two independent update paths (see also `updater/README.md`):
-
-| | Runtime update (Harness kernel) | Desktop update (the app itself) |
-|---|---|---|
-| What updates | The `dsh` engine inside the app — versioned, atomic, rollback-able | The whole app |
-| How it works | In-app: set the **update-source URL** (sidebar → Runtime) to a channel manifest (`dev` / `beta` / `stable` or any custom URL), then check → download → install | **Disabled** in this unsigned distribution (requires Apple signing) |
-| Pipeline | `upstream-watch` (hourly) detects a new official release → `runtime-build` builds + verifies (Compatibility Gate) → publishes to the `dev` channel; `beta` / `stable` are promoted manually | tag `v*` → `desktop-release` builds the DMG on CI and publishes a GitHub Release |
-
-Current channel state (in `updater/channels/`): `dev.json` points to runtime `2026.08.16.1` (dsh `0.1.0-rc.6`); `beta.json` / `stable.json` are empty until promoted.
+There is one user-facing update path. `upstream-watch` detects a new official Harness, `runtime-build`
+pins and verifies it, and `desktop-release` embeds the same Artifact into a new patch Release. Fresh
+installs use the DMG; installed Apps check `latest.json` and install the signed `.app.tar.gz` from that
+same Release. Runtime versions remain internal only for activation and automatic rollback.
 
 ## How It Works
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
 │ App shell — Tauri 2 + React (native titlebar, System theme)  │
-│   boot(): baseline seed → start service → iframe → web UI    │
-│   SidebarPanel: service / runtime update / logs / settings   │
+│   boot(): verify bundled Runtime → start → iframe → web UI   │
+│   Harness Settings: the single Desktop App update entry      │
 └──────────────────────┬───────────────────────────────────────┘
-                       │ invoke commands (bridge/cmd.rs, ~30)
+                       │ minimal invoke bridge
 ┌──────────────────────┴───────────────────────────────────────┐
 │ Rust backend                                                 │
 │   process/    dsh lifecycle: unconditional rebuild — any     │
 │               LISTENer on :3080 (incl. external CLI dsh) is  │
 │               stopped first, own instance launched with an   │
 │               isolated $DSH_HOME (lsof -sTCP:LISTEN only)    │
-│   runtime/    versioned installs (versions/<v> + current/    │
-│               previous), baseline seed, update / rollback    │
+│   runtime/    bundled version activation + automatic rollback│
 │   config/     local Node resolution, settings, theme, i18n   │
-│   service/    scheduler + health checks, download engine     │
+│   service/    theme preference monitor + local extraction    │
 └──────┬───────────────────────────────┬───────────────────────┘
        │                               │
   packages/ (Extension Pack)      runtime/versions/<v>/
   theme · ui · tools ·            (built by the CI pipeline,
   integrations — injected via     bundled in the DMG as
-  official extension points       baseline, updated in-app)
+  official extension points       baseline, updated with App)
        └──────────────┬──────────────┘
                       ▼
    node dsh --profile web --host 127.0.0.1 --port 3080
@@ -114,7 +108,7 @@ Current channel state (in `updater/channels/`): `dev.json` points to runtime `20
          http://127.0.0.1:3080/  ← embedded Harness UI
 ```
 
-- The Harness kernel comes from the official npm package `@deepseek-ai/dsh` (a prebuilt-bundle fallback source is kept at [deepseek-harness-pkg](https://github.com/hairyf/deepseek-harness-pkg)).
+- The Harness kernel comes only from the official npm package `@deepseek-ai/dsh` and is pinned during CI builds.
 - Runtime snapshots are versioned (`YYYY.MM.DD.N`), verified by a Compatibility Gate before release, and installable with SHA-256 checks and rollback.
 - Full architecture notes: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); the original design: [docs/deepseek-harness-desktop-macos-arm64-design.md](docs/deepseek-harness-desktop-macos-arm64-design.md).
 
@@ -129,7 +123,7 @@ It contains:
 - `runtime/versions/<v>/` — versioned Harness Runtime (current / previous)
 - `data/dsh/` — Harness user data (`$DSH_HOME`: profiles, sessions, settings), isolated from a CLI dsh's `~/.dsh`
 - `logs/` — app and dsh service logs
-- `.store.dat` — desktop settings (port, auto-start, language)
+- `.store.dat` — desktop settings (installation state, port, language)
 
 ## Development
 
@@ -176,17 +170,16 @@ git push origin main                         # runs desktop-test (quality gate)
 # 也可继续推送显式 vX.Y.Z tag 触发发布
 ```
 
-The workflow applies its resolved version as a Tauri build override, and uses the same value for the DMG name, updater manifest, tag and GitHub Release. Runtime tags such as `runtime-*` are ignored by automatic version selection.
+The workflow applies its resolved version as a Tauri build override, and uses the same value for the DMG name, updater manifest, tag and GitHub Release.
 
 ## FAQ
 
-- **Port 3080 is already in use?** The app stops whatever is listening on 3080 (LISTEN sockets only — it never touches processes that merely hold connections, e.g. a browser) and starts its own isolated instance. Change the port in the sidebar settings if you prefer.
+- **Port 3080 is already in use?** The app stops whatever is listening on 3080 (LISTEN sockets only — it never touches processes that merely hold connections, e.g. a browser) and starts its own isolated instance.
 - **The app says "is damaged and can't be opened"?** The file is not damaged — this is Gatekeeper's message for an ad-hoc-signed app carrying the download quarantine attribute. Clear it once and reopen: `xattr -dr com.apple.quarantine "/Applications/Deepseek Harness Desktop.app"` (re-run after installing a new version).
 - **Will the app touch my CLI `dsh` data?** No. It uses its own data directory and its own `$DSH_HOME`; a running CLI dsh on 3080 is stopped rather than adopted.
-- **What happens during the first launch?** The bundled Baseline Runtime is seeded offline, extensions are installed, the service starts, and the Harness UI loads. The sidebar shows live install/service logs.
+- **What happens during the first launch?** The bundled Runtime manifest and SHA256 are verified, the exact build version is activated, extensions are installed, and the Harness UI loads.
 - **Node.js not found?** Install Node.js v22.15+ / v23.8+ / v24+ (Homebrew: `brew install node`, or via nvm) and relaunch. The app does not download Node.
-- **How do Runtime updates work?** Set the update-source URL in the sidebar to a channel manifest (`https://raw.githubusercontent.com/tfcup/deepseek-harness-desktop/main/updater/channels/dev.json` for the dev channel), then check → install (SHA-256 verified) → roll back if needed.
-- **How do I get a new app version?** Use **Settings → General → App Update**. The DMG remains available on the Releases page for first install or manual recovery.
+- **How do updates work?** Use **Settings → General → App Update**. The complete App update contains the latest verified Harness; the DMG remains available on Releases for first install or manual recovery.
 
 ## Security Notes
 
@@ -200,15 +193,13 @@ The workflow applies its resolved version as a Tauri build override, and uses th
 - [Architecture](docs/ARCHITECTURE.md) — implementation notes
 - [Execution plan](docs/EXECUTION-PLAN.md) — phased plan with progress (Chinese)
 - [Plugin API research](docs/DSH-PLUGIN-API.md) — official extension points (Chinese)
-- [Package contract](docs/PKG-CONTRACT.md) — release artifact contract
-- [Promotion](docs/PROMOTION.md) — channel promotion guide
+- [Promotion material](docs/PROMOTION.md) — project introduction drafts
 
 ## Related Projects
 
 | Project | Purpose |
 | --- | --- |
 | [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) | The upstream `dsh` (CLI + web UI + plugin architecture) |
-| [deepseek-harness-pkg](https://github.com/hairyf/deepseek-harness-pkg) | Prebuilt Harness bundle fallback source |
 | [n8n-desktop](https://github.com/tangtao646/n8n-desktop) | Reference implementation for one-click local desktop apps |
 
 ## Acknowledgements

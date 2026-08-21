@@ -16,7 +16,7 @@ function resolveTheme(preference: DshThemePreference): ResolvedTheme {
 }
 
 /**
- * 让桌面外壳（侧边栏、设置页等）跟随内嵌 dsh 页面的主题。
+ * 让桌面外壳的加载和错误状态跟随内嵌 dsh 页面的主题。
  *
  * dsh 把主题偏好持久化在 `$DSH_HOME/settings.yaml` 的 `ui-theme.preference`
  * （light/dark/system），后端轮询到变化后通过 `dsh-theme-updated` 事件推送，
