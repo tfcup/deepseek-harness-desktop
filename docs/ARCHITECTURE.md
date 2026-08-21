@@ -43,7 +43,7 @@
 
 ## 数据目录
 
-- macOS：`~/Library/Application Support/deepseek-harness-desktop/`（自定义命名，不随 bundle id）
+- macOS：`~/Library/Application Support/Deepseek-Harness-Desktop/`（自定义命名，不随 bundle id）
 
 包含：`node/`（App Managed Node，独立目录）、`dependencies/dsh/`（harness 发行版）、
 `runtime/versions/` + `current.json`/`previous.json`（Runtime 多版本与回滚结构，Phase 1 启用）、

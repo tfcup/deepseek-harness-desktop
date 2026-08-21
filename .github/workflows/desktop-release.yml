@@ -66,13 +66,25 @@ jobs:
 
       # ---------- 方案 B：Baseline Runtime（§15 修订：Node 不内置，使用本机 Node） ----------
       - name: 准备 Baseline Runtime（固定 dsh + Extension Pack → zip）
+        env:
+          # npm 解析 dsh 的大型依赖图会超过 Node 默认约 2 GB 的 V8 堆上限；
+          # macos-14 Runner 有 7 GB 内存，这里仅为该步骤提升至 4 GB。
+          NODE_OPTIONS: --max-old-space-size=4096
         run: |
           # dsh 基座装到 RUNNER_TEMP（仓库外）。用 npm 而非 pnpm：
           #  - npm 原生执行 postinstall（node-pty/koffi 等原生模块），无 pnpm 审批问题；
           #  - npm 布局是真实目录（无符号链接），runtime zip 更小（~80MB vs pnpm ~450MB）。
           mkdir -p "$RUNNER_TEMP/dsh-base"
           cd "$RUNNER_TEMP/dsh-base"
-          echo '{"name":"dsh-base","private":true,"dependencies":{"@deepseek-ai/dsh":"latest"}}' > package.json
+          # Desktop Release 复用 upstream-watch 已确认的版本，避免 latest 在构建期间漂移。
+          HARNESS_VERSION="$(tr -d '[:space:]' < "$GITHUB_WORKSPACE/runtime/.known-version")"
+          if [[ -z "$HARNESS_VERSION" ]]; then
+            echo "runtime/.known-version 为空，无法确定 Baseline Harness 版本" >&2
+            exit 1
+          fi
+          printf '{"name":"dsh-base","private":true,"dependencies":{"@deepseek-ai/dsh":"%s"}}\n' \
+            "$HARNESS_VERSION" > package.json
+          echo "Baseline Harness version: $HARNESS_VERSION"
           npm install --no-audit --no-fund
           cd "$GITHUB_WORKSPACE"
           OUT=$(DSH_BASE="$RUNNER_TEMP/dsh-base" \

@@ -39,7 +39,7 @@
 - **One-click local run** — The DMG bundles a prebuilt Baseline Runtime (Harness + Extension Pack); on first launch it is seeded offline and starts with zero downloads. Just have Node.js on your machine.
 - **Automatic upstream tracking** — A scheduled pipeline checks the official `@deepseek-ai/dsh` release every hour, builds and verifies a versioned Runtime, and publishes it to the `dev` channel. In-app Runtime updates install it with SHA-256 verification and one-click rollback.
 - **Customize without modifying upstream** — An Extension Pack (theme / UI / tools / integrations) is injected through the official extension mechanisms (`ctx.theme.register`, `ctx.slots`, `ctx.tools.register`, ...). No official file is ever patched.
-- **Data isolation** — A dedicated data directory (`~/Library/Application Support/deepseek-harness-desktop/`) keeps app data separate from a CLI `dsh`'s `~/.dsh`. The app also re-launches its own isolated instance whenever it finds any listener on port 3080 — an external CLI dsh is stopped first, never adopted.
+- **Data isolation** — A dedicated data directory (`~/Library/Application Support/Deepseek-Harness-Desktop/`) keeps app data separate from a CLI `dsh`'s `~/.dsh`. The app also re-launches its own isolated instance whenever it finds any listener on port 3080 — an external CLI dsh is stopped first, never adopted.
 - **Lightweight & native** — A Tauri 2 shell (system WebKit, not bundled Chromium): standard macOS titlebar with traffic lights, theme-colored titlebar, System theme sync, double-click to maximize.
 
 > **Why Tauri and not Electron?** The same features run lighter: a smaller installer and lower idle RAM, with native window controls that stay snappy — important for a local agent host you may keep open all day. The embedded system WebKit also shrinks the install footprint.
@@ -122,7 +122,7 @@ Current channel state (in `updater/channels/`): `dev.json` points to runtime `20
 
 A custom-named folder under Application Support (like Chrome/VS Code, not the bundle id):
 
-- macOS: `~/Library/Application Support/deepseek-harness-desktop/`
+- macOS: `~/Library/Application Support/Deepseek-Harness-Desktop/`
 
 It contains:
 

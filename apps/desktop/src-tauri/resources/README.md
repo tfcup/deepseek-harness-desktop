@@ -4,8 +4,8 @@ This directory is bundled into the installer as `resources/**`.
 
 At runtime, the application seeds / downloads everything it needs into the OS
 user-data directory (the Tauri app-data dir for identifier
-`deepseek-harness-desktop` (custom-named, not the bundle id), i.e.
-`~/Library/Application Support/deepseek-harness-desktop/`):
+`Deepseek-Harness-Desktop` (custom-named, not the bundle id), i.e.
+`~/Library/Application Support/Deepseek-Harness-Desktop/`):
 
 - （§15 修订：Node 不内置、不下载——直接使用本机 Node，缺失即报错）
 - `runtime/versions/<v>/` — versioned Harness Runtime（基线随 DMG 内置或经 Runtime 更新安装）

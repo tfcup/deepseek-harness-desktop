@@ -7,17 +7,17 @@ use tauri::{AppHandle, Runtime};
 use super::constants::*;
 use super::format::get_dsh_service_url;
 
-/// 获取 App Data 基础目录（自定义：`~/Library/Application Support/deepseek-harness-desktop`）
+/// 获取 App Data 基础目录（自定义：`~/Library/Application Support/Deepseek-Harness-Desktop`）
 ///
 /// 说明：macOS 并不要求该目录名等于 bundle identifier——其他应用（Chrome/VS Code/
-/// Telegram 等）都在代码里自定义此目录名。这里显式使用 `deepseek-harness-desktop`
+/// Telegram 等）都在代码里自定义此目录名。这里显式使用 `Deepseek-Harness-Desktop`
 /// （不走 Tauri 默认的 identifier 命名），并配套让 store 使用绝对路径（见 setting.rs）。
 pub fn get_base_dir<R: Runtime>(_app_handle: &AppHandle<R>) -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_default();
     PathBuf::from(home)
         .join("Library")
         .join("Application Support")
-        .join("deepseek-harness-desktop")
+        .join("Deepseek-Harness-Desktop")
 }
 
 /// 通过登录 shell 解析 node（GUI 应用从 Finder 启动时 PATH 不完整——launchd 只给
