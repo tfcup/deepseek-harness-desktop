@@ -117,6 +117,10 @@ jobs:
         if: ${{ inputs.runtime_artifact == '' }}
         run: node runtime/scripts/verify-runtime.ts --runtime "$STAGING_DIR"
 
+      # App 自带 dsh-ui 会覆盖 Runtime 中的副本，因此所有发布入口都必须验证当前仓库版本。
+      - name: Desktop UI 行为门（Service 注入 → Slot 注册 → 握手前可见）
+        run: node packages/harness-adapter/scripts/verify-ui-logic.ts
+
       - name: 嵌入已验证的 Baseline Runtime
         run: |
           ZIP=$(find runtime/dist -maxdepth 1 -name 'runtime-*-arm64.zip' | head -1)

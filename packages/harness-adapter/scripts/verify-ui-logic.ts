@@ -25,7 +25,7 @@ function fail(message: string): never {
  * 提供插件所需的最小 React API；useState 直接返回“发现更新”状态，
  * 便于在没有真实 React renderer 时断言按钮动作。
  */
-function stubReact() {
+function stubReact(connected = true) {
   return {
     createElement: (type: unknown, props: unknown, ...children: unknown[]): StubElement => ({
       kind: "element",
@@ -34,7 +34,7 @@ function stubReact() {
       children,
     }),
     useState: () => [{
-      connected: true,
+      connected,
       desktop: true,
       phase: "available",
       currentVersion: "0.1.13",
@@ -112,7 +112,7 @@ async function main(): Promise<void> {
       };
     }
     throw new Error(`unexpected require: ${specifier}`);
-  }) as { apply: (ctx: unknown) => void };
+  }) as { apply: (ctx: unknown) => void; inject: string[] };
 
   const slots = {
     inject: (slotName: string, callback: () => void) => {
@@ -124,15 +124,15 @@ async function main(): Promise<void> {
     ) => registrations.push({ ...definition, component }),
   };
   const context = {
-    get: (key: string) => {
-      if (key === "slots") return slots;
-      if (key === "locale") return { register: () => () => undefined };
-      return null;
-    },
+    slots,
+    locale: { register: () => () => undefined },
     effect: (effect: () => unknown) => effect(),
   };
 
   console.log("[1] 只注册 Harness 常规设置中的 App 更新行…");
+  if (moduleExports.inject.join(",") !== "slots,locale") {
+    fail(`Cordis Service 注入声明异常: ${JSON.stringify(moduleExports.inject)}`);
+  }
   moduleExports.apply(context);
   if (registrations.length !== 1) fail(`slots.register 调用次数异常: ${registrations.length}`);
   const updateRow = registrations.find((item) => item.name === "settings.general.item");
@@ -153,15 +153,21 @@ async function main(): Promise<void> {
     fail("发现更新时按钮未请求 install");
   }
 
-  console.log("[3] React 不可用时优雅降级…");
-  const exportsWithoutReact = entry.factory(() => {
-    throw new Error("react not available");
+  console.log("[3] 桌面父窗口握手前仍展示更新入口…");
+  const disconnectedReact = stubReact(false);
+  const disconnectedExports = entry.factory((specifier) => {
+    if (specifier === "react") return disconnectedReact;
+    if (specifier === "@deepseek-ai/dsh-client-ui-primitives") return {};
+    throw new Error(`unexpected require: ${specifier}`);
   }) as { apply: (ctx: unknown) => void };
-  const countBefore = registrations.length;
-  exportsWithoutReact.apply(context);
-  if (registrations.length !== countBefore) fail("React 缺失时不应注册 slot");
+  const registrationCount = registrations.length;
+  disconnectedExports.apply(context);
+  const disconnectedRow = registrations[registrationCount]?.component({ t: (key: string) => key });
+  if (!findElement(disconnectedRow, (element) => element.type === "button")) {
+    fail("桌面 iframe 握手前更新行不应静默消失");
+  }
 
-  console.log("\n✅ dsh-ui 设置更新行、消息协议和降级行为验证通过。");
+  console.log("\n✅ dsh-ui 设置更新行、消息协议和握手前可见性验证通过。");
 }
 
 void main();

@@ -14,19 +14,19 @@
 package.json     # dsh.client 声明 + exports["./client"]（叶子包：由聚合包插入行）
 lib/index.js     # 宿主半身（{ name, apply }）
 lib/client.js    # 浏览器 bundle：__ModuleLoader__.load → apply(ctx)
-                 #   ctx.get('slots') → inject settings.general.item
+                 #   inject=['slots','locale'] → ctx.slots.inject settings.general.item
 ```
 
 要点（官方规范）：
-- 用 `ctx.get('slots')`（不要 `ctx.slots`，除非声明注入）；
+- 在 Client Plugin 的 `exports.inject` 中声明 `slots` 和 `locale` 后使用对应服务；
 - `slots.inject` 等待官方 slot 声明后再注册；
-- React 经 loader 提供（`require("react")`，与官方 bundle 同路径）；不可用时优雅降级。
+- React 经 loader 提供（`require("react")`，与官方 bundle 同路径）；依赖缺失时明确启动失败，禁止静默隐藏设置项。
 
 ## 验证
 
 | 脚本 | 内容 | 结果 |
 |---|---|---|
-| `packages/harness-adapter/scripts/verify-ui-logic.ts` | inject→register、组件渲染、onClick postMessage、react 缺失降级 | ✅ |
+| `packages/harness-adapter/scripts/verify-ui-logic.ts` | Service 注入、slot 注册、组件渲染、onClick postMessage、握手前可见性 | ✅ |
 | `packages/harness-adapter/scripts/verify-client-plugin.ts` | 真实 dsh E2E：引导图含 dsh-ui 条目、client.js 服务 | ✅ |
 
 ## 状态

@@ -29,7 +29,7 @@ node scripts/verify-client-plugin.ts      # 完整 Extension Pack 加载链 E2E�
 
 - `verify-layout.ts`：全新 DSH_HOME 兼容断言 → adapter 安装 bundle + patch 注入标记 → 主题桥读取。
 - `verify-theme-logic.ts`：stub 加载 dsh-theme client.js，断言明暗双主题注册、CSS 幂等、matchMedia 自动选择。
-- `verify-ui-logic.ts`：stub 加载 dsh-ui client.js，断言 slots.inject→register、按钮渲染、react 缺失降级。
+- `verify-ui-logic.ts`：stub 加载 dsh-ui client.js，断言 Service 注入、slots.inject→register、按钮渲染和握手前可见性。
 - `verify-host-plugins.ts`：stub ctx 验证 dsh-tools（tools.register + execute）与 dsh-integrations（systemPrompt.section）。
 - `verify-client-plugin.ts`：安装 `dsh-desktop-bundle` 聚合 + 四叶子包 → 组合树全部行 →
   服务器启动 → `__DSH_BOOT__` 含 dsh-theme/dsh-ui → 各 client.js 正常服务。

@@ -86,6 +86,9 @@ jobs:
           echo "HARNESS_VERSION=$HARNESS_VERSION" >> "$GITHUB_ENV"
           echo "harness_version=$HARNESS_VERSION" >> "$GITHUB_OUTPUT"
 
+      - name: Desktop UI 行为门（Service 注入 → Slot 注册 → 握手前可见）
+        run: node packages/harness-adapter/scripts/verify-ui-logic.ts
+
       - name: Compatibility Gate（全新 DSH_HOME：扩展加载 → 启动 → 引导图 → client.js）
         run: node runtime/scripts/verify-runtime.ts --runtime "$STAGING_DIR"
 

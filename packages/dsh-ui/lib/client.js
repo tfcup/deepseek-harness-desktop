@@ -12,18 +12,10 @@ window.__ModuleLoader__.load({
     var module = { exports: {} };
     var exports = module.exports;
 
-    var React = null;
-    var primitives = {};
-    try {
-      React = require("react");
-    } catch (error) {
-      React = null;
-    }
-    try {
-      primitives = require("@deepseek-ai/dsh-client-ui-primitives");
-    } catch (error) {
-      primitives = {};
-    }
+    // React 和 primitives 都是 Harness Web 启动器提供的静态模块。依赖缺失时应让
+    // Client Plugin 明确启动失败，而不是静默隐藏更新入口并让 Compatibility Gate 误判。
+    var React = require("react");
+    var primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 
     var REQUEST_TYPE = "dsh-desktop:update-request-v1";
     var STATE_TYPE = "dsh-desktop:update-state-v1";
@@ -124,7 +116,8 @@ window.__ModuleLoader__.load({
 
     /**
      * Harness“设置 > 常规”中的 App 更新行。
-     * 未收到可信桌面父窗口握手前不渲染，避免普通浏览器出现不可用的原生操作。
+     * 普通浏览器顶层访问时不渲染；桌面 iframe 中立即展示，避免父窗口握手异常时
+     * 整个更新入口静默消失。所有原生操作仍由父窗口校验消息来源后执行。
      */
     function DesktopUpdateRow(props) {
       var t = typeof props.t === "function" ? props.t : fallbackTranslate;
@@ -150,7 +143,7 @@ window.__ModuleLoader__.load({
         };
       }, []);
 
-      if (!state.connected) return null;
+      if (window.parent === window) return null;
 
       var action = actionForState(state, t);
       var busy = state.phase === "checking" || state.phase === "downloading" || state.phase === "installing";
@@ -197,7 +190,7 @@ window.__ModuleLoader__.load({
 
     /** 注册插件自己的中英文文案；旧 Harness 缺少 locale 服务时允许降级。 */
     function registerLocale(ctx) {
-      var locale = ctx && ctx.get ? ctx.get("locale") : null;
+      var locale = ctx && ctx.locale;
       if (!locale || typeof locale.register !== "function") return;
       if (typeof ctx.effect === "function") {
         ctx.effect(function registerDesktopUpdateLocale() {
@@ -210,8 +203,7 @@ window.__ModuleLoader__.load({
 
     /** 注册桌面专用的官方 Slot 扩展，不直接修改 Harness 上游组件。 */
     function apply(ctx) {
-      if (!React) return;
-      var slots = ctx && (ctx.get ? ctx.get("slots") : null);
+      var slots = ctx && ctx.slots;
       if (!slots || typeof slots.inject !== "function") return;
 
       ensureStyles();
@@ -230,8 +222,9 @@ window.__ModuleLoader__.load({
       });
     }
 
-    /** Client Plugin 无额外注入阶段。 */
-    function inject(_ctx) {}
+    // `package.json#dsh.client.inject` 声明插件加载顺序；这里声明的则是 Cordis
+    // Service 依赖。必须显式注入后才能通过 ctx.slots / ctx.locale 使用官方服务。
+    var inject = ["slots", "locale"];
 
     exports.apply = apply;
     exports.inject = inject;

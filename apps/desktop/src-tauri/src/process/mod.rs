@@ -103,6 +103,8 @@ pub async fn launch(app_handle: tauri::AppHandle) -> Result<(), String> {
         cmd.arg(&dsh_binary_path)
             .arg("--profile")
             .arg("web")
+            // Harness 的 web profile 默认会拉起系统浏览器；桌面端只通过内嵌 iframe 展示页面。
+            .arg("--no-open")
             .arg("--host")
             .arg("127.0.0.1")
             .arg("--port")
