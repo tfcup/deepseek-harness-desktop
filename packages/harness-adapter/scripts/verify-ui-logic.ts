@@ -111,6 +111,7 @@ async function main(): Promise<void> {
   const postMessages: unknown[] = [];
   const messageListeners: Array<(event: unknown) => void> = [];
   const styleValues = new Map<string, string>();
+  const styleElements: Array<{ dataset: Record<string, string>; textContent: string }> = [];
   const rootAttributes = new Set<string>();
   const settingsWrites: Array<{ field: string; value: unknown }> = [];
 
@@ -141,7 +142,11 @@ async function main(): Promise<void> {
     },
     querySelector: () => null,
     createElement: () => ({ dataset: {}, textContent: "" }),
-    head: { appendChild: () => undefined },
+    head: {
+      appendChild: (element: { dataset: Record<string, string>; textContent: string }) => {
+        styleElements.push(element);
+      },
+    },
   };
 
   await import(pathToFileURL(CLIENT_JS).href);
@@ -210,11 +215,17 @@ async function main(): Promise<void> {
   }
 
   console.log("[2] 持久化字体在设置页打开前应用到 Harness 官方变量…");
-  if (!styleValues.get("--dsw-font-family")?.includes("PingFangSC-Medium")) {
-    fail("UI 字体没有应用到 --dsw-font-family");
+  if (!styleValues.get("--dsw-font-family")?.includes("DSH Desktop UI")) {
+    fail("UI 虚拟字体家族没有应用到 --dsw-font-family");
   }
-  if (!styleValues.get("--ds-font-family-code")?.includes("JetBrainsMono-Regular")) {
-    fail("编程字体没有应用到 --ds-font-family-code");
+  if (!styleValues.get("--ds-font-family-code")?.includes("DSH Desktop Code")) {
+    fail("编程虚拟字体家族没有应用到 --ds-font-family-code");
+  }
+  const selectedFaceStyle = styleElements.find((element) =>
+    element.dataset.pluginCss === "dsh-ui/desktop-font-faces");
+  if (!selectedFaceStyle?.textContent.includes("PingFangSC-Medium") ||
+      !selectedFaceStyle.textContent.includes("JetBrainsMono-Regular")) {
+    fail("字体目录返回前没有用已保存 face 建立虚拟字体家族");
   }
   if (!rootAttributes.has("data-dsh-desktop-ui-font") || !rootAttributes.has("data-dsh-desktop-code-font")) {
     fail("字体覆盖状态标记缺失");
@@ -243,6 +254,22 @@ async function main(): Promise<void> {
       ],
     },
   ];
+  for (const listener of messageListeners) {
+    listener({
+      source: parentWindow,
+      data: { type: "dsh-desktop:font-state-v1", desktop: true, phase: "ready", families },
+    });
+  }
+  const selectedFaceCss = selectedFaceStyle.textContent;
+  for (const postscriptName of ["PingFangSC-Regular", "PingFangSC-Medium", "PingFangSC-MediumItalic"]) {
+    if (!selectedFaceCss.includes(postscriptName)) {
+      fail(`UI 虚拟字体家族缺少真实 face: ${postscriptName}`);
+    }
+  }
+  if (!selectedFaceCss.includes('font-family:"DSH Desktop UI"') ||
+      !selectedFaceCss.includes("font-style:italic")) {
+    fail("UI 虚拟字体家族没有保留独立字重和样式");
+  }
   const uiControls = findElement(fontTree, (element) =>
     typeof element.type === "function" && element.props.kind === "ui");
   if (!uiControls || typeof uiControls.type !== "function") fail("UI 字体控件缺失");
@@ -290,6 +317,10 @@ async function main(): Promise<void> {
   (systemOption.props.onClick as () => void)();
   if (styleValues.has("--dsw-font-family") || !styleValues.has("--ds-font-family-code")) {
     fail("恢复 UI 系统默认时不应清除独立的编程字体覆盖");
+  }
+  if (selectedFaceStyle.textContent.includes('font-family:"DSH Desktop UI"') ||
+      !selectedFaceStyle.textContent.includes('font-family:"DSH Desktop Code"')) {
+    fail("恢复 UI 系统默认时只应移除 UI 虚拟字体家族");
   }
 
   console.log("[3] 更新行通过版本化 postMessage 发出检查/安装请求…");
