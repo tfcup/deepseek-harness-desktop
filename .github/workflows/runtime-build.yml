@@ -65,7 +65,7 @@ jobs:
         env:
           REQUESTED_VERSION: ${{ inputs.harness_version }}
         run: |
-          # latest 只在这里解析一次，后续 npm 安装、缓存键和发布确认全部使用同一版本。
+          # latest 只在这里解析一次，后续 npm 安装、构建和发布确认全部使用同一版本。
           HARNESS_VERSION="$REQUESTED_VERSION"
           if [[ -z "$HARNESS_VERSION" ]]; then
             HARNESS_VERSION="$(npm view @deepseek-ai/dsh version)"
@@ -78,16 +78,11 @@ jobs:
           echo "harness_version=$HARNESS_VERSION" >> "$GITHUB_OUTPUT"
           echo "Harness version: $HARNESS_VERSION"
 
-      # dsh-ui 由 Desktop App Bundle 独立覆盖，不属于 Runtime Cache 的失效条件。
-      - name: 恢复已验证的 Runtime Cache
-        id: runtime-cache
-        uses: actions/cache/restore@v6
-        with:
-          path: runtime/dist
-          key: runtime-v2-${{ runner.os }}-arm64-${{ steps.resolve-harness.outputs.harness_version }}-${{ hashFiles('runtime/scripts/**', 'packages/dsh-theme/**', 'packages/dsh-tools/**', 'packages/dsh-integrations/**', 'packages/dsh-desktop-bundle/**') }}
-
       - name: 固定 @deepseek-ai/dsh 版本并安装到基座
-        if: ${{ steps.runtime-cache.outputs.cache-hit != 'true' }}
+        env:
+          # npm 解析 dsh 的大型依赖图会超过 Node 默认约 2 GB 的 V8 堆上限。
+          # 仅扩大依赖安装步骤的堆空间，避免 Runtime 构建进程无谓占用更多内存。
+          NODE_OPTIONS: --max-old-space-size=4096
         run: |
           # 基座装到 RUNNER_TEMP（仓库外）。用 npm：原生跑 postinstall、真实目录布局、
           # runtime zip 更小（pnpm 布局会得到 ~450MB 且依赖符号链接，zip 默认跟随链接膨胀）
@@ -99,7 +94,6 @@ jobs:
           echo "DSH_BASE_DIR=$RUNNER_TEMP/dsh-base" >> "$GITHUB_ENV"
 
       - name: 构建 Runtime（zip + sha256 + manifest）
-        if: ${{ steps.runtime-cache.outputs.cache-hit != 'true' }}
         run: |
           OUT=$(node runtime/scripts/build-runtime.ts --dsh-base "$DSH_BASE_DIR")
           echo "$OUT"
@@ -109,21 +103,13 @@ jobs:
           node runtime/scripts/prepare-runtime-artifact.ts \
             --dist runtime/dist \
             --expected-harness "$HARNESS_VERSION" \
-            --extract "$RUNNER_TEMP/runtime-cache-verify" >> "$GITHUB_ENV"
+            --extract "$RUNNER_TEMP/runtime-artifact-verify" >> "$GITHUB_ENV"
 
       - name: Desktop UI 行为门（Service 注入 → Slot 注册 → 握手前可见）
         run: node packages/harness-adapter/scripts/verify-ui-logic.ts
 
       - name: Compatibility Gate（全新 DSH_HOME：扩展加载 → 启动 → 引导图 → client.js）
         run: node runtime/scripts/verify-runtime.ts --runtime "$STAGING_DIR"
-
-      # 只保存已经通过完整 Gate 的三件套；同一 Key 的 Cache 不覆盖，避免并发污染。
-      - name: 保存已验证的 Runtime Cache
-        if: ${{ github.ref == 'refs/heads/main' && steps.runtime-cache.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@v6
-        with:
-          path: runtime/dist
-          key: ${{ steps.runtime-cache.outputs.cache-primary-key }}
 
       - name: 上传产物（zip + sha256 + manifest）
         uses: actions/upload-artifact@v6

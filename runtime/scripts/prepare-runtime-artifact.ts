@@ -51,8 +51,8 @@ function sha256(path: string): string {
 }
 
 /**
- * 从最终 ZIP 还原 staging，并用当前仓库 dsh-ui 覆盖缓存副本。
- * dsh-ui 由 App Bundle 独立交付，不进入 Runtime Cache Key；这里模拟 App 的真实启动顺序。
+ * 从最终 ZIP 还原 staging，并用当前仓库 dsh-ui 覆盖 Runtime 中的副本。
+ * dsh-ui 由 App Bundle 独立交付；这里模拟 App 启动时用随包 UI 覆盖 Runtime UI 的真实顺序。
  */
 function extractForCompatibility(zip: string, target: string): string {
   rmSync(target, { recursive: true, force: true });
