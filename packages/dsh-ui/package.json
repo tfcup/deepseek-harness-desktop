@@ -2,7 +2,7 @@
   "name": "dsh-ui",
   "version": "0.1.0",
   "private": true,
-  "description": "Desktop App updater entry for the official DeepSeek Harness settings page.",
+  "description": "Desktop updater and native font settings for the official DeepSeek Harness settings page.",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -17,7 +17,10 @@
   "dsh": {
     "client": {
       "inject": [
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-client-connection",
         "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-runtime",
         "@deepseek-ai/dsh-client-ui-primitives",
         "@deepseek-ai/dsh-client-ui-settings",
         "@deepseek-ai/dsh-client-ui-settings-general"

@@ -1,10 +1,10 @@
 // dsh-ui 客户端 bundle（浏览器侧，官方 wire 格式：__ModuleLoader__.load）。
 //
 // 这个插件只通过 DeepSeek Harness 的公开 slot 扩展界面：
-//   - settings.general.item：在 Harness 自带“设置 > 常规”中提供唯一的 App 更新入口。
+//   - settings.general.item：提供本机字体选择和唯一的 App 更新入口。
 //
-// Harness 页面运行在 127.0.0.1 iframe 中，不能直接调用 Tauri API。更新操作通过
-// postMessage 发给桌面父窗口；父窗口必须校验 iframe window 和 origin 后才会执行。
+// Harness 页面运行在 127.0.0.1 iframe 中，不能直接调用 Tauri API。更新与字体请求
+// 通过 postMessage 发给桌面父窗口；父窗口必须校验 iframe window 和 origin 后才会执行。
 
 window.__ModuleLoader__.load({
   id: "dsh-ui",
@@ -19,6 +19,9 @@ window.__ModuleLoader__.load({
 
     var REQUEST_TYPE = "dsh-desktop:update-request-v1";
     var STATE_TYPE = "dsh-desktop:update-state-v1";
+    var FONT_REQUEST_TYPE = "dsh-desktop:font-request-v1";
+    var FONT_STATE_TYPE = "dsh-desktop:font-state-v1";
+    var FONT_SETTINGS_NAMESPACE = "desktop-fonts";
     var LOCALE_NAMESPACE = "desktop-update";
 
     var zh = {
@@ -35,6 +38,16 @@ window.__ModuleLoader__.load({
       installing: "正在安装更新…",
       restartRequired: "更新已安装，重启后生效",
       retry: "重试",
+      fontTitle: "字体",
+      uiFont: "界面字体",
+      codeFont: "编程字体",
+      systemDefault: "系统默认",
+      searchFonts: "搜索字体",
+      refreshFonts: "重新扫描本机字体",
+      loadingFonts: "正在读取本机字体…",
+      noFonts: "没有匹配的字体",
+      unavailableFont: "已选字体当前不可用，已回退到系统字体",
+      monospace: "等宽",
     };
     var en = {
       title: "App Update",
@@ -50,6 +63,16 @@ window.__ModuleLoader__.load({
       installing: "Installing update…",
       restartRequired: "Update installed. Restart to apply it.",
       retry: "Retry",
+      fontTitle: "Fonts",
+      uiFont: "Interface Font",
+      codeFont: "Code Font",
+      systemDefault: "System Default",
+      searchFonts: "Search fonts",
+      refreshFonts: "Rescan local fonts",
+      loadingFonts: "Reading local fonts…",
+      noFonts: "No matching fonts",
+      unavailableFont: "The selected font is unavailable; using the system fallback",
+      monospace: "Mono",
     };
 
     /** 注入与 Harness 官方设置行一致的轻量样式，且保证热重载时幂等。 */
@@ -72,6 +95,35 @@ window.__ModuleLoader__.load({
         ".dsh-desktop-update__button{display:inline-flex;min-height:32px;align-items:center;justify-content:center;gap:6px;padding:5px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;line-height:20px;cursor:pointer}",
         ".dsh-desktop-update__button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}",
         ".dsh-desktop-update__button:disabled{cursor:not-allowed;opacity:.55}",
+        ".dsh-desktop-fonts{display:flex;flex-direction:column;gap:14px;padding:16px 0;border-bottom:1px solid var(--dsw-alias-border-l2)}",
+        ".dsh-desktop-fonts__title{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:400;line-height:22px}",
+        ".dsh-desktop-fonts__row{display:grid;grid-template-columns:minmax(100px,1fr) minmax(0,2.3fr);align-items:center;gap:16px}",
+        ".dsh-desktop-fonts__label{color:var(--dsw-alias-label-secondary);font-size:13px;line-height:20px}",
+        ".dsh-desktop-fonts__controls{display:grid;grid-template-columns:minmax(150px,1fr) minmax(116px,.48fr);gap:8px;min-width:0}",
+        ".dsh-font-picker{position:relative;min-width:0}",
+        ".dsh-font-picker__trigger,.dsh-font-picker__weight{box-sizing:border-box;width:100%;height:36px;border:1px solid transparent;border-radius:18px;background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-primary);font:inherit;font-size:14px;line-height:22px;cursor:pointer}",
+        ".dsh-font-picker__trigger{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 13px;text-align:left}",
+        ".dsh-font-picker__trigger:hover,.dsh-font-picker__weight:hover{background:var(--dsw-alias-interactive-bg-hover)}",
+        ".dsh-font-picker__trigger:disabled,.dsh-font-picker__weight:disabled{cursor:not-allowed;opacity:.55}",
+        ".dsh-font-picker__name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+        ".dsh-font-picker__chevron{flex:none;color:var(--dsw-alias-label-secondary);font-size:16px}",
+        ".dsh-font-picker__weight{appearance:none;padding:0 30px 0 13px;background-image:linear-gradient(45deg,transparent 50%,currentColor 50%),linear-gradient(135deg,currentColor 50%,transparent 50%);background-position:calc(100% - 16px) 15px,calc(100% - 11px) 15px;background-size:5px 5px;background-repeat:no-repeat}",
+        ".dsh-font-picker__menu{position:absolute;z-index:80;top:calc(100% + 6px);left:0;width:max(100%,260px);overflow:hidden;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-specific-menu,var(--dsw-alias-bg-layer-1));box-shadow:var(--dsw-shadow-lv3);padding:6px}",
+        ".dsh-font-picker__search-row{display:flex;align-items:center;gap:6px;padding-bottom:6px}",
+        ".dsh-font-picker__search{box-sizing:border-box;min-width:0;height:32px;flex:1;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;padding:0 9px;outline:none}",
+        ".dsh-font-picker__search:focus{border-color:var(--dsw-alias-state-business-primary)}",
+        ".dsh-font-picker__refresh{width:32px;height:32px;flex:none;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font-size:17px;cursor:pointer}",
+        ".dsh-font-picker__refresh:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}",
+        ".dsh-font-picker__list{max-height:260px;overflow-y:auto}",
+        ".dsh-font-picker__option{display:flex;width:100%;min-height:34px;align-items:center;justify-content:space-between;gap:8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);padding:6px 8px;text-align:left;font-size:13px;cursor:pointer}",
+        ".dsh-font-picker__option:hover,.dsh-font-picker__option[aria-selected='true']{background:var(--dsw-alias-interactive-bg-hover)}",
+        ".dsh-font-picker__badge{flex:none;border-radius:4px;background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-tertiary);padding:1px 5px;font-size:10px;line-height:16px}",
+        ".dsh-font-picker__empty,.dsh-desktop-fonts__status{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}",
+        ".dsh-font-picker__empty{padding:10px 8px}",
+        ".dsh-desktop-fonts__warning{color:var(--dsw-alias-state-warn-primary)}",
+        "html[data-dsh-desktop-ui-font] body{font-weight:var(--dsh-desktop-ui-font-weight,400)}",
+        "html[data-dsh-desktop-code-font] code,html[data-dsh-desktop-code-font] pre,html[data-dsh-desktop-code-font] kbd,html[data-dsh-desktop-code-font] samp{font-weight:var(--dsh-desktop-code-font-weight,400)}",
+        "@media(max-width:720px){.dsh-desktop-fonts__row{grid-template-columns:1fr}.dsh-desktop-fonts__controls{grid-template-columns:minmax(0,1fr) minmax(108px,.48fr)}}",
       ].join("");
       document.head.appendChild(tag);
     }
@@ -86,6 +138,328 @@ window.__ModuleLoader__.load({
     function requestDesktopUpdate(action) {
       if (window.parent === window) return;
       window.parent.postMessage({ type: REQUEST_TYPE, action: action }, "*");
+    }
+
+    /** 请求父窗口返回本机字体目录；refresh=true 时让原生层绕过进程缓存。 */
+    function requestFontCatalog(refresh) {
+      if (window.parent === window) return;
+      window.parent.postMessage({ type: FONT_REQUEST_TYPE, action: refresh ? "refresh" : "list" }, "*");
+    }
+
+    /** 将可能损坏的 settings 值收敛为客户端可安全使用的字体配置。 */
+    function normalizeFontSettings(value) {
+      var source = value && typeof value === "object" ? value : {};
+      function text(field, fallback) {
+        return typeof source[field] === "string" && source[field].length <= 200 ? source[field] : fallback;
+      }
+      function weight(field) {
+        var candidate = Number(source[field]);
+        return Number.isFinite(candidate) ? Math.max(1, Math.min(1000, Math.round(candidate))) : 400;
+      }
+      return {
+        uiFamily: text("uiFamily", "system"),
+        uiPostscriptName: text("uiPostscriptName", ""),
+        uiWeight: weight("uiWeight"),
+        codeFamily: text("codeFamily", "system"),
+        codePostscriptName: text("codePostscriptName", ""),
+        codeWeight: weight("codeWeight"),
+      };
+    }
+
+    /** 生成只含受控字体名称和固定 fallback 的 CSS font-family 值。 */
+    function fontStack(selection, code) {
+      var fallback = code
+        ? '"SF Mono", "JetBrains Mono", "Fira Code", Consolas, Menlo, monospace'
+        : '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif';
+      var names = [];
+      if (selection.postscriptName) names.push(JSON.stringify(selection.postscriptName));
+      if (selection.family && selection.family !== "system") names.push(JSON.stringify(selection.family));
+      names.push(fallback);
+      return names.join(", ");
+    }
+
+    /** 将持久化配置映射到 Harness 官方字体变量；系统默认会完整移除插件覆盖。 */
+    function applyFontSettings(settings) {
+      var root = document.documentElement;
+      if (!root || !root.style) return;
+      var normalized = normalizeFontSettings(settings);
+      var ui = {
+        family: normalized.uiFamily,
+        postscriptName: normalized.uiPostscriptName,
+        weight: normalized.uiWeight,
+      };
+      var code = {
+        family: normalized.codeFamily,
+        postscriptName: normalized.codePostscriptName,
+        weight: normalized.codeWeight,
+      };
+
+      if (ui.family === "system") {
+        root.style.removeProperty("--dsw-font-family");
+        root.style.removeProperty("--dsh-desktop-ui-font-weight");
+        root.removeAttribute("data-dsh-desktop-ui-font");
+      } else {
+        root.style.setProperty("--dsw-font-family", fontStack(ui, false));
+        root.style.setProperty("--dsh-desktop-ui-font-weight", String(ui.weight));
+        root.setAttribute("data-dsh-desktop-ui-font", "");
+      }
+      if (code.family === "system") {
+        root.style.removeProperty("--ds-font-family-code");
+        root.style.removeProperty("--dsh-desktop-code-font-weight");
+        root.removeAttribute("data-dsh-desktop-code-font");
+      } else {
+        root.style.setProperty("--ds-font-family-code", fontStack(code, true));
+        root.style.setProperty("--dsh-desktop-code-font-weight", String(code.weight));
+        root.setAttribute("data-dsh-desktop-code-font", "");
+      }
+    }
+
+    /** 读取 UI 或代码字体选择，避免两组控件交叉覆盖。 */
+    function selectionFromSettings(settings, kind) {
+      var prefix = kind === "code" ? "code" : "ui";
+      return {
+        family: settings[prefix + "Family"],
+        postscriptName: settings[prefix + "PostscriptName"],
+        weight: settings[prefix + "Weight"],
+      };
+    }
+
+    /** 生成只替换目标字体组的新 settings 快照。 */
+    function withSelection(settings, kind, selection) {
+      var next = Object.assign({}, settings);
+      var prefix = kind === "code" ? "code" : "ui";
+      next[prefix + "Family"] = selection.family;
+      next[prefix + "PostscriptName"] = selection.postscriptName;
+      next[prefix + "Weight"] = selection.weight;
+      return next;
+    }
+
+    /** 把一组字体选择写入官方 settingsScope；控制器自身负责串行和 revision 冲突恢复。 */
+    function persistSelection(scope, kind, selection) {
+      var prefix = kind === "code" ? "code" : "ui";
+      scope.set(prefix + "Family", selection.family);
+      scope.set(prefix + "PostscriptName", selection.postscriptName);
+      scope.set(prefix + "Weight", selection.weight);
+    }
+
+    /** 为家族选择默认 face：优先常规 400，再选择最接近 400 的非斜体成员。 */
+    function defaultFace(family) {
+      if (!family || !Array.isArray(family.faces) || family.faces.length === 0) return null;
+      return family.faces.slice().sort(function compareFaces(left, right) {
+        var leftStyle = left.style === "normal" ? 0 : 1;
+        var rightStyle = right.style === "normal" ? 0 : 1;
+        return leftStyle - rightStyle || Math.abs(left.weight - 400) - Math.abs(right.weight - 400);
+      })[0];
+    }
+
+    /** 可搜索字体家族菜单；编程字体只改变排序，不隐藏非等宽字体。 */
+    function FontFamilyPicker(props) {
+      var openTuple = React.useState(false);
+      var open = openTuple[0];
+      var setOpen = openTuple[1];
+      var queryTuple = React.useState("");
+      var query = queryTuple[0];
+      var setQuery = queryTuple[1];
+      var normalizedQuery = query.trim().toLocaleLowerCase();
+      var families = (props.families || []).slice().sort(function sortFamilies(left, right) {
+        if (props.kind === "code" && left.monospace !== right.monospace) return left.monospace ? -1 : 1;
+        return left.family.localeCompare(right.family);
+      }).filter(function filterFamily(family) {
+        if (!normalizedQuery) return true;
+        if (family.family.toLocaleLowerCase().includes(normalizedQuery)) return true;
+        return family.faces.some(function matchesFace(face) {
+          return face.postscriptName.toLocaleLowerCase().includes(normalizedQuery) ||
+            face.fullName.toLocaleLowerCase().includes(normalizedQuery);
+        });
+      });
+      var currentFamily = props.selection.family === "system"
+        ? null
+        : (props.families || []).find(function findFamily(family) {
+          return family.family === props.selection.family;
+        });
+      var preview = props.selection.family === "system"
+        ? undefined
+        : { fontFamily: fontStack(props.selection, props.kind === "code") };
+
+      var menu = null;
+      if (open) {
+        var options = [React.createElement("button", {
+          type: "button",
+          role: "option",
+          className: "dsh-font-picker__option",
+          "aria-selected": props.selection.family === "system",
+          key: "system",
+          onClick: function selectSystem() {
+            props.onSelect({ family: "system", postscriptName: "", weight: 400 });
+            setOpen(false);
+          },
+        }, props.t("systemDefault"))];
+        families.forEach(function addFamily(family) {
+          var face = defaultFace(family);
+          if (!face) return;
+          options.push(React.createElement("button", {
+            type: "button",
+            role: "option",
+            className: "dsh-font-picker__option",
+            "aria-selected": props.selection.family === family.family,
+            key: family.family,
+            style: { fontFamily: fontStack({ family: family.family, postscriptName: face.postscriptName }, props.kind === "code") },
+            onClick: function selectFamily() {
+              props.onSelect({ family: family.family, postscriptName: face.postscriptName, weight: face.weight });
+              setOpen(false);
+            },
+          },
+          React.createElement("span", { className: "dsh-font-picker__name" }, family.family),
+          family.monospace ? React.createElement("span", { className: "dsh-font-picker__badge" }, props.t("monospace")) : null));
+        });
+        menu = React.createElement("div", {
+          className: "dsh-font-picker__menu",
+          role: "dialog",
+          onKeyDown: function closeOnEscape(event) {
+            if (event.key === "Escape") setOpen(false);
+          },
+        },
+          React.createElement("div", { className: "dsh-font-picker__search-row" },
+            React.createElement("input", {
+              type: "search",
+              className: "dsh-font-picker__search",
+              value: query,
+              autoFocus: true,
+              placeholder: props.t("searchFonts"),
+              onChange: function updateQuery(event) { setQuery(event.target.value); },
+            }),
+            React.createElement("button", {
+              type: "button",
+              className: "dsh-font-picker__refresh",
+              title: props.t("refreshFonts"),
+              "aria-label": props.t("refreshFonts"),
+              onClick: function refreshFonts() { requestFontCatalog(true); },
+            }, React.createElement(primitives.IconRefreshOutline16))),
+          React.createElement("div", { className: "dsh-font-picker__list", role: "listbox" },
+            options.length > 1 || !normalizedQuery
+              ? options
+              : React.createElement("div", { className: "dsh-font-picker__empty" }, props.t("noFonts"))));
+      }
+
+      return React.createElement("div", { className: "dsh-font-picker" },
+        React.createElement("button", {
+          type: "button",
+          className: "dsh-font-picker__trigger",
+          disabled: props.disabled,
+          "aria-expanded": open,
+          onClick: function toggleMenu() { setOpen(!open); },
+          style: preview,
+        },
+        React.createElement("span", { className: "dsh-font-picker__name" },
+          props.selection.family === "system" ? props.t("systemDefault") : props.selection.family),
+        React.createElement("span", { className: "dsh-font-picker__chevron", "aria-hidden": true }, "⌄")),
+        menu);
+    }
+
+    /** 一组“家族 + 实际 face”控件；右侧只列出当前家族真实存在的成员。 */
+    function FontSelectionControls(props) {
+      var family = props.selection.family === "system" ? null : props.families.find(function findFamily(candidate) {
+        return candidate.family === props.selection.family;
+      });
+      var faces = family ? family.faces : [];
+      var selectedFace = faces.find(function findFace(face) {
+        return face.postscriptName === props.selection.postscriptName;
+      });
+      return React.createElement("div", { className: "dsh-desktop-fonts__controls" },
+        React.createElement(FontFamilyPicker, props),
+        React.createElement("select", {
+          className: "dsh-font-picker__weight",
+          value: selectedFace ? selectedFace.postscriptName : "",
+          disabled: props.disabled || !family,
+          onChange: function selectFace(event) {
+            var face = faces.find(function matchesFace(candidate) { return candidate.postscriptName === event.target.value; });
+            if (face) props.onSelect({ family: family.family, postscriptName: face.postscriptName, weight: face.weight });
+          },
+        },
+        family
+          ? faces.map(function faceOption(face) {
+            return React.createElement("option", { value: face.postscriptName, key: face.postscriptName }, face.weightLabel);
+          })
+          : React.createElement("option", { value: "" }, props.t("systemDefault"))));
+    }
+
+    /** Harness 常规设置中的两组字体选择器。 */
+    function DesktopFontRow(props) {
+      var t = typeof props.t === "function" ? props.t : fallbackTranslate;
+      var snapshotTuple = React.useState(props.scope.getSnapshot());
+      var snapshot = snapshotTuple[0];
+      var setSnapshot = snapshotTuple[1];
+      var draftTuple = React.useState(null);
+      var draft = draftTuple[0];
+      var setDraft = draftTuple[1];
+      var catalogTuple = React.useState({ phase: "idle", families: [], error: "" });
+      var catalog = catalogTuple[0];
+      var setCatalog = catalogTuple[1];
+
+      React.useEffect(function subscribeFontSettings() {
+        return props.scope.subscribe(function updateFontSnapshot() {
+          var next = props.scope.getSnapshot();
+          setSnapshot(next);
+          if (next.status === "ready") {
+            setDraft(null);
+            applyFontSettings(next.value);
+          }
+        });
+      }, [props.scope]);
+
+      React.useEffect(function subscribeFontCatalog() {
+        if (window.parent === window) return undefined;
+        /** 只接受直接父窗口返回的只读字体目录。 */
+        function onMessage(event) {
+          if (event.source !== window.parent) return;
+          var data = event.data;
+          if (!data || data.type !== FONT_STATE_TYPE || data.desktop !== true) return;
+          setCatalog({ phase: data.phase, families: Array.isArray(data.families) ? data.families : [], error: data.error || "" });
+        }
+        window.addEventListener("message", onMessage);
+        requestFontCatalog(false);
+        return function unsubscribeFontCatalog() { window.removeEventListener("message", onMessage); };
+      }, []);
+
+      var settings = draft || normalizeFontSettings(snapshot.value);
+      var disabled = snapshot.status !== "ready" || snapshot.writable !== true || catalog.phase === "loading";
+      function select(kind, selection) {
+        var next = withSelection(settings, kind, selection);
+        setDraft(next);
+        applyFontSettings(next);
+        persistSelection(props.scope, kind, selection);
+      }
+      var uiSelection = selectionFromSettings(settings, "ui");
+      var codeSelection = selectionFromSettings(settings, "code");
+      var missing = catalog.phase === "ready" && [uiSelection, codeSelection].some(function missingSelection(selection) {
+        if (selection.family === "system") return false;
+        var family = catalog.families.find(function findFamily(candidate) { return candidate.family === selection.family; });
+        return !family || !family.faces.some(function findFace(face) { return face.postscriptName === selection.postscriptName; });
+      });
+
+      var status = null;
+      if (catalog.phase === "loading" || catalog.phase === "idle") status = t("loadingFonts");
+      else if (catalog.phase === "error") status = catalog.error;
+      else if (missing) status = t("unavailableFont");
+
+      return React.createElement("div", { className: "dsh-desktop-fonts" },
+        React.createElement("div", { className: "dsh-desktop-fonts__title" }, t("fontTitle")),
+        React.createElement("div", { className: "dsh-desktop-fonts__row" },
+          React.createElement("div", { className: "dsh-desktop-fonts__label" }, t("uiFont")),
+          React.createElement(FontSelectionControls, {
+            kind: "ui", t: t, families: catalog.families, selection: uiSelection, disabled: disabled,
+            onSelect: function selectUi(selection) { select("ui", selection); },
+          })),
+        React.createElement("div", { className: "dsh-desktop-fonts__row" },
+          React.createElement("div", { className: "dsh-desktop-fonts__label" }, t("codeFont")),
+          React.createElement(FontSelectionControls, {
+            kind: "code", t: t, families: catalog.families, selection: codeSelection, disabled: disabled,
+            onSelect: function selectCode(selection) { select("code", selection); },
+          })),
+        status ? React.createElement("div", {
+          className: "dsh-desktop-fonts__status" + (missing || catalog.phase === "error" ? " dsh-desktop-fonts__warning" : ""),
+          role: catalog.phase === "error" ? "alert" : "status",
+        }, status) : null);
     }
 
     /** 为当前状态选择按钮文案、动作和图标。 */
@@ -208,8 +582,32 @@ window.__ModuleLoader__.load({
 
       ensureStyles();
       registerLocale(ctx);
+      var fontScope = ctx.settingsScope.bind({ namespace: FONT_SETTINGS_NAMESPACE });
+
+      /** 设置页尚未打开时也持续应用持久化字体，确保整个 Harness 启动后立即一致。 */
+      function syncFontSettings() {
+        var snapshot = fontScope.getSnapshot();
+        if (snapshot.status === "ready") applyFontSettings(snapshot.value);
+      }
+      syncFontSettings();
+      if (typeof ctx.effect === "function") {
+        ctx.effect(function subscribePersistentFonts() {
+          return fontScope.subscribe(syncFontSettings);
+        }, "dsh-ui: desktop font settings");
+      }
 
       slots.inject("settings.general.item", function registerDesktopUpdateRow() {
+        slots.register(
+          {
+            name: "settings.general.item",
+            id: "desktop-fonts",
+            order: 20,
+            locale: LOCALE_NAMESPACE,
+          },
+          function DesktopFontSlot(props) {
+            return React.createElement(DesktopFontRow, Object.assign({}, props, { scope: fontScope }));
+          },
+        );
         slots.register(
           {
             name: "settings.general.item",
@@ -224,7 +622,7 @@ window.__ModuleLoader__.load({
 
     // `package.json#dsh.client.inject` 声明插件加载顺序；这里声明的则是 Cordis
     // Service 依赖。必须显式注入后才能通过 ctx.slots / ctx.locale 使用官方服务。
-    var inject = ["slots", "locale"];
+    var inject = ["slots", "locale", "connection", "remote", "settingsScope"];
 
     exports.apply = apply;
     exports.inject = inject;

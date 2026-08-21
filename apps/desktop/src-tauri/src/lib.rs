@@ -1,6 +1,7 @@
 mod bridge;
 mod config;
 mod core;
+mod font;
 mod logger;
 mod node;
 mod process;
@@ -95,6 +96,7 @@ fn handler() -> impl Fn(Invoke<Wry>) -> bool + Send + Sync + 'static {
         bridge::cmd::get_runtime_info,
         bridge::cmd::set_language,
         bridge::cmd::get_dsh_theme,
+        bridge::cmd::list_system_fonts,
     ]
 }
 

@@ -5,6 +5,7 @@ import SetupScreen, { InstallProgress, SetupStatus } from "./components/SetupScr
 import { useI18n } from "./i18n/context";
 import { generateTimestampedUrl } from "./hooks/useAutoSync";
 import { useDshTheme } from "./hooks/useDshTheme";
+import { useDesktopFontBridge } from "./hooks/useDesktopFontBridge";
 import { useDesktopUpdaterBridge } from "./hooks/useDesktopUpdaterBridge";
 
 const MAX_RETRIES = 8;
@@ -27,7 +28,7 @@ const btnPrimary =
   "inline-flex cursor-pointer items-center justify-center rounded-md border border-accent bg-accent px-3 py-1.5 text-[13px] text-white transition-colors hover:bg-accent2 disabled:cursor-not-allowed disabled:opacity-55";
 
 /**
- * Desktop 外壳只负责启动内置 Harness、展示其 Web 页面并桥接 App Updater。
+ * Desktop 外壳只负责启动内置 Harness、展示其 Web 页面并桥接 App Updater 与本机字体目录。
  * Runtime 选择和失败回滚全部在 Rust 启动命令内完成，不向用户暴露第二套更新界面。
  */
 export default function App() {
@@ -47,6 +48,7 @@ export default function App() {
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const iframeSrc = useMemo(() => generateTimestampedUrl(serviceUrl), [serviceUrl]);
+  useDesktopFontBridge({ iframeRef, serviceUrl });
   useDesktopUpdaterBridge({ iframeRef, serviceUrl });
 
   /** 重新挂载 WebView，供服务已经健康但页面加载失败时重试。 */

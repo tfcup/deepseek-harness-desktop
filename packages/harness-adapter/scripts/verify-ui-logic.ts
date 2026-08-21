@@ -1,6 +1,6 @@
 //! dsh-ui 客户端插件行为测试（无浏览器，stub 环境）。
 //!
-//! 验证 Harness 设置更新行通过官方 slot 注册，并且只发送版本化 postMessage
+//! 验证 Harness 字体/更新设置行通过官方 slot 注册，并且只发送版本化 postMessage
 //! 请求，不注册已删除的桌面工具入口，也不直接接触 Tauri API。
 
 import { join } from "node:path";
@@ -26,6 +26,8 @@ function fail(message: string): never {
  * 便于在没有真实 React renderer 时断言按钮动作。
  */
 function stubReact(connected = true) {
+  let forcedStates: unknown[] | null = null;
+  let forcedIndex = 0;
   return {
     createElement: (type: unknown, props: unknown, ...children: unknown[]): StubElement => ({
       kind: "element",
@@ -33,15 +35,26 @@ function stubReact(connected = true) {
       props: (props ?? {}) as Record<string, unknown>,
       children,
     }),
-    useState: () => [{
-      connected,
-      desktop: true,
-      phase: "available",
-      currentVersion: "0.1.13",
-      latestVersion: "0.1.14",
-      progress: 0,
-    }, () => undefined],
+    useState: (initial: unknown) => {
+      if (forcedStates) return [forcedStates[forcedIndex++], () => undefined];
+      if (initial && typeof initial === "object" && "connected" in initial && "phase" in initial) {
+        return [{
+          connected,
+          desktop: true,
+          phase: "available",
+          currentVersion: "0.1.13",
+          latestVersion: "0.1.14",
+          progress: 0,
+        }, () => undefined];
+      }
+      return [typeof initial === "function" ? (initial as () => unknown)() : initial, () => undefined];
+    },
     useEffect: (effect: () => void | (() => void)) => effect(),
+    /** 为单个无 renderer 的组件调用提供确定的 hook 状态。 */
+    forceStates: (states: unknown[] | null) => {
+      forcedStates = states;
+      forcedIndex = 0;
+    },
   };
 }
 
@@ -64,6 +77,28 @@ function findElement(value: unknown, predicate: (element: StubElement) => boolea
   return null;
 }
 
+/** 收集元素树中所有匹配节点，用于验证搜索后的字体选项集合。 */
+function findElements(value: unknown, predicate: (element: StubElement) => boolean): StubElement[] {
+  const matches: StubElement[] = [];
+  if (Array.isArray(value)) {
+    for (const child of value) matches.push(...findElements(child, predicate));
+    return matches;
+  }
+  if (!value || typeof value !== "object" || (value as StubElement).kind !== "element") return matches;
+  const element = value as StubElement;
+  if (predicate(element)) matches.push(element);
+  for (const child of element.children) matches.push(...findElements(child, predicate));
+  return matches;
+}
+
+/** 提取 stub React 子树中的可见文本，避免元素包装影响选项断言。 */
+function visibleText(value: unknown): string {
+  if (Array.isArray(value)) return value.map(visibleText).join("");
+  if (!value || typeof value !== "object") return value == null ? "" : String(value);
+  if ((value as StubElement).kind !== "element") return "";
+  return (value as StubElement).children.map(visibleText).join("");
+}
+
 /** 执行 slot 注册、渲染和 postMessage 协议断言。 */
 async function main(): Promise<void> {
   const registrations: Array<{
@@ -75,6 +110,9 @@ async function main(): Promise<void> {
   const loaded: Array<{ id: string; factory: (request: (specifier: string) => unknown) => unknown }> = [];
   const postMessages: unknown[] = [];
   const messageListeners: Array<(event: unknown) => void> = [];
+  const styleValues = new Map<string, string>();
+  const rootAttributes = new Set<string>();
+  const settingsWrites: Array<{ field: string; value: unknown }> = [];
 
   const parentWindow = {
     postMessage: (message: unknown) => postMessages.push(message),
@@ -92,7 +130,15 @@ async function main(): Promise<void> {
     removeEventListener: () => undefined,
   };
   (globalThis as unknown as Record<string, unknown>).document = {
-    documentElement: { lang: "zh-CN" },
+    documentElement: {
+      lang: "zh-CN",
+      style: {
+        setProperty: (name: string, value: string) => styleValues.set(name, value),
+        removeProperty: (name: string) => styleValues.delete(name),
+      },
+      setAttribute: (name: string) => rootAttributes.add(name),
+      removeAttribute: (name: string) => rootAttributes.delete(name),
+    },
     querySelector: () => null,
     createElement: () => ({ dataset: {}, textContent: "" }),
     head: { appendChild: () => undefined },
@@ -127,20 +173,126 @@ async function main(): Promise<void> {
     slots,
     locale: { register: () => () => undefined },
     effect: (effect: () => unknown) => effect(),
+    settingsScope: {
+      bind: () => ({
+        getSnapshot: () => ({
+          status: "ready",
+          writable: true,
+          value: {
+            uiFamily: "PingFang SC",
+            uiPostscriptName: "PingFangSC-Medium",
+            uiWeight: 500,
+            codeFamily: "JetBrains Mono",
+            codePostscriptName: "JetBrainsMono-Regular",
+            codeWeight: 400,
+          },
+        }),
+        subscribe: () => () => undefined,
+        set: (field: string, value: unknown) => {
+          settingsWrites.push({ field, value });
+          return Promise.resolve();
+        },
+      }),
+    },
   };
 
-  console.log("[1] 只注册 Harness 常规设置中的 App 更新行…");
-  if (moduleExports.inject.join(",") !== "slots,locale") {
+  console.log("[1] 注册 Harness 常规设置中的字体与 App 更新行…");
+  if (moduleExports.inject.join(",") !== "slots,locale,connection,remote,settingsScope") {
     fail(`Cordis Service 注入声明异常: ${JSON.stringify(moduleExports.inject)}`);
   }
   moduleExports.apply(context);
-  if (registrations.length !== 1) fail(`slots.register 调用次数异常: ${registrations.length}`);
-  const updateRow = registrations.find((item) => item.name === "settings.general.item");
+  if (registrations.length !== 2) fail(`slots.register 调用次数异常: ${registrations.length}`);
+  const fontRow = registrations.find((item) => item.id === "desktop-fonts");
+  const updateRow = registrations.find((item) => item.id === "desktop-app-update");
+  if (!fontRow || fontRow.order !== 20) fail("Harness 字体设置行注册异常");
   if (!updateRow || updateRow.id !== "desktop-app-update" || updateRow.order !== 100) {
     fail("Harness 设置更新行注册异常");
   }
 
-  console.log("[2] 更新行通过版本化 postMessage 发出检查/安装请求…");
+  console.log("[2] 持久化字体在设置页打开前应用到 Harness 官方变量…");
+  if (!styleValues.get("--dsw-font-family")?.includes("PingFangSC-Medium")) {
+    fail("UI 字体没有应用到 --dsw-font-family");
+  }
+  if (!styleValues.get("--ds-font-family-code")?.includes("JetBrainsMono-Regular")) {
+    fail("编程字体没有应用到 --ds-font-family-code");
+  }
+  if (!rootAttributes.has("data-dsh-desktop-ui-font") || !rootAttributes.has("data-dsh-desktop-code-font")) {
+    fail("字体覆盖状态标记缺失");
+  }
+  const fontSlot = fontRow.component({ t: (key: string) => key }) as StubElement;
+  if (typeof fontSlot.type !== "function") fail("字体设置 slot 未渲染 React 组件");
+  const fontTree = (fontSlot.type as (props: Record<string, unknown>) => unknown)(fontSlot.props);
+  const fontRequests = postMessages as Array<{ type?: string; action?: string }>;
+  if (!fontRequests.some((message) => message.type === "dsh-desktop:font-request-v1" && message.action === "list")) {
+    fail("字体设置行挂载时未请求本机字体目录");
+  }
+
+  const families = [
+    {
+      family: "Arial",
+      monospace: false,
+      faces: [{ postscriptName: "ArialMT", fullName: "Arial Regular", weight: 400, weightLabel: "Regular", style: "normal" }],
+    },
+    {
+      family: "PingFang SC",
+      monospace: false,
+      faces: [
+        { postscriptName: "PingFangSC-Regular", fullName: "PingFang SC Regular", weight: 400, weightLabel: "Regular", style: "normal" },
+        { postscriptName: "PingFangSC-Medium", fullName: "PingFang SC Medium", weight: 500, weightLabel: "Medium", style: "normal" },
+        { postscriptName: "PingFangSC-MediumItalic", fullName: "PingFang SC Medium Italic", weight: 500, weightLabel: "Medium Italic", style: "italic" },
+      ],
+    },
+  ];
+  const uiControls = findElement(fontTree, (element) =>
+    typeof element.type === "function" && element.props.kind === "ui");
+  if (!uiControls || typeof uiControls.type !== "function") fail("UI 字体控件缺失");
+  const controlsTree = (uiControls.type as (props: Record<string, unknown>) => unknown)({
+    ...uiControls.props,
+    families,
+  });
+  const weightSelect = findElement(controlsTree, (element) => element.type === "select");
+  const weightLabels = findElements(weightSelect, (element) => element.type === "option")
+    .map(visibleText);
+  if (!weightLabels.includes("Medium") || !weightLabels.includes("Medium Italic")) {
+    fail(`字重菜单未使用字体真实成员: ${weightLabels.join(", ")}`);
+  }
+  (weightSelect?.props.onChange as (event: { target: { value: string } }) => void)({
+    target: { value: "PingFangSC-MediumItalic" },
+  });
+  if (settingsWrites.some((write) => write.field.startsWith("code")) ||
+      !settingsWrites.some((write) => write.field === "uiPostscriptName" && write.value === "PingFangSC-MediumItalic")) {
+    fail("UI 字体选择没有独立保存精确 PostScript face");
+  }
+
+  const familyPicker = findElement(controlsTree, (element) =>
+    typeof element.type === "function" && element.props.kind === "ui");
+  if (!familyPicker || typeof familyPicker.type !== "function") fail("字体家族菜单缺失");
+  react.forceStates([true, "ping"]);
+  const searchTree = (familyPicker.type as (props: Record<string, unknown>) => unknown)(familyPicker.props);
+  react.forceStates(null);
+  const searchedFamilies = findElements(searchTree, (element) => element.props.role === "option")
+    .map(visibleText);
+  if (!searchedFamilies.some((label) => label.includes("PingFang SC")) || searchedFamilies.some((label) => label.includes("Arial"))) {
+    fail(`字体搜索结果异常: ${searchedFamilies.join(", ")}`);
+  }
+  react.forceStates([true, ""]);
+  const fullMenuTree = (familyPicker.type as (props: Record<string, unknown>) => unknown)(familyPicker.props);
+  react.forceStates(null);
+  const refreshButton = findElement(fullMenuTree, (element) => element.props["aria-label"] === "refreshFonts");
+  (refreshButton?.props.onClick as (() => void) | undefined)?.();
+  if (!fontRequests.some((message) => message.type === "dsh-desktop:font-request-v1" && message.action === "refresh") ||
+      settingsWrites.length !== 3) {
+    fail("重新扫描字体应只发 refresh 请求，不能覆盖已保存选择");
+  }
+  const systemOption = findElements(fullMenuTree, (element) => element.props.role === "option")
+    .find((option) => visibleText(option) === "systemDefault");
+  if (!systemOption) fail("字体家族菜单缺少系统默认选项");
+  (systemOption.props.onClick as () => void)();
+  if (styleValues.has("--dsw-font-family") || !styleValues.has("--ds-font-family-code")) {
+    fail("恢复 UI 系统默认时不应清除独立的编程字体覆盖");
+  }
+
+  console.log("[3] 更新行通过版本化 postMessage 发出检查/安装请求…");
   const row = updateRow.component({ t: (key: string) => key });
   const installButton = findElement(row, (element) => element.type === "button");
   if (!installButton) fail("更新行未渲染操作按钮");
@@ -153,7 +305,7 @@ async function main(): Promise<void> {
     fail("发现更新时按钮未请求 install");
   }
 
-  console.log("[3] 桌面父窗口握手前仍展示更新入口…");
+  console.log("[4] 桌面父窗口握手前仍展示更新入口…");
   const disconnectedReact = stubReact(false);
   const disconnectedExports = entry.factory((specifier) => {
     if (specifier === "react") return disconnectedReact;
@@ -162,12 +314,18 @@ async function main(): Promise<void> {
   }) as { apply: (ctx: unknown) => void };
   const registrationCount = registrations.length;
   disconnectedExports.apply(context);
-  const disconnectedRow = registrations[registrationCount]?.component({ t: (key: string) => key });
+  const disconnectedRegistration = registrations
+    .slice(registrationCount)
+    .find((item) => item.id === "desktop-app-update");
+  const disconnectedRow = disconnectedRegistration?.component({ t: (key: string) => key });
   if (!findElement(disconnectedRow, (element) => element.type === "button")) {
     fail("桌面 iframe 握手前更新行不应静默消失");
   }
 
-  console.log("\n✅ dsh-ui 设置更新行、消息协议和握手前可见性验证通过。");
+  if (settingsWrites.length !== 6 || settingsWrites.some((write) => write.field.startsWith("code"))) {
+    fail(`两次 UI 字体操作应只写入 UI 组字段: ${JSON.stringify(settingsWrites)}`);
+  }
+  console.log("\n✅ dsh-ui 字体/更新设置行、消息协议和持久化字体应用验证通过。");
 }
 
 void main();

@@ -46,3 +46,11 @@ pub fn set_language(app_handle: AppHandle, lang: String) {
 pub fn get_dsh_theme(app_handle: AppHandle) -> config::DshTheme {
     config::get_dsh_theme(&app_handle)
 }
+
+/// Enumerate fonts through the native platform database without exposing filesystem access.
+#[tauri::command]
+pub async fn list_system_fonts(refresh: bool) -> Result<Vec<crate::font::FontFamilyInfo>, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::font::list_system_fonts(refresh))
+        .await
+        .map_err(|error| format!("font catalog task failed: {error}"))?
+}

@@ -1,7 +1,23 @@
-// dsh-ui 宿主半身（Cordis 插件 { name, apply }）：让包进入插件树，client-modules
-// 借此服务 exports["./client"] 的浏览器 bundle。宿主侧暂无逻辑。
+// dsh-ui 宿主半身：注册 Desktop 字体设置命名空间，并让 client-modules 服务客户端 bundle。
+
+import { settingsNamespace } from "@deepseek-ai/dsh-settings";
+import z from "@deepseek-ai/schemastery";
+
+const FONT_SETTINGS_NAMESPACE = settingsNamespace("desktop-fonts");
+const FontSettingsSchema = z.object({
+  uiFamily: z.string().default("system"),
+  uiPostscriptName: z.string().default(""),
+  uiWeight: z.number().default(400),
+  codeFamily: z.string().default("system"),
+  codePostscriptName: z.string().default(""),
+  codeWeight: z.number().default(400),
+});
+
 export const name = "dsh-ui";
 
-export function apply(_ctx) {
-  // 宿主半身无副作用；UI 注册在浏览器侧 client.js 的 apply() 里完成。
+/** 注册耐久字体配置；真实读写仍由 Harness 官方 settings provider 负责。 */
+export function apply(ctx) {
+  ctx.inject(["settings"], (settingsCtx) => {
+    settingsCtx.settings.register(FONT_SETTINGS_NAMESPACE, FontSettingsSchema);
+  });
 }

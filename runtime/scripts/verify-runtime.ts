@@ -10,7 +10,7 @@
 //!   node scripts/verify-runtime.ts --runtime <dir> [--port 3086] [--keep]
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -61,9 +61,24 @@ async function main(): Promise<void> {
     fail("用法: node scripts/verify-runtime.ts --runtime <dir>（build-runtime.ts 输出的 STAGING）");
   }
   const harnessBin = join(RUNTIME_DIR, "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js");
+  const officialThemeClient = join(
+    RUNTIME_DIR,
+    "node_modules",
+    "@deepseek-ai",
+    "dsh-client-ui-theme",
+    "lib",
+    "client.js",
+  );
   const extRoot = join(RUNTIME_DIR, ".dsh-desktop", "extensions");
   if (!existsSync(harnessBin)) fail(`Harness 入口缺失: ${harnessBin}`);
   if (!existsSync(extRoot)) fail(`Extension Pack 缺失: ${extRoot}`);
+  if (!existsSync(officialThemeClient)) fail(`Harness 官方主题客户端缺失: ${officialThemeClient}`);
+  const officialThemeSource = readFileSync(officialThemeClient, "utf8");
+  for (const variable of ["--dsw-font-family", "--ds-font-family-code"]) {
+    if (!officialThemeSource.includes(variable)) {
+      fail(`Harness 官方主题不再提供字体变量 ${variable}`);
+    }
+  }
 
   const dshHome = mkdtempSync(join(tmpdir(), "dsh-runtime-verify-"));
   console.log(`DSH_HOME: ${dshHome}`);
@@ -137,7 +152,10 @@ async function main(): Promise<void> {
       const body = await res.text();
       if (!body.includes("__ModuleLoader__.load")) fail(`client.js 内容异常（${clientId}）`);
       if (clientId === "dsh-ui" && !body.includes("settings.general.item")) {
-        fail("dsh-ui client.js 缺少 Harness 设置更新 slot 标记");
+        fail("dsh-ui client.js 缺少 Harness 设置 slot 标记");
+      }
+      if (clientId === "dsh-ui" && !body.includes("desktop-fonts")) {
+        fail("dsh-ui client.js 缺少 Desktop 字体设置标记");
       }
       console.log(`    ✓ ${clientId}/client.js 正常服务（${body.length} 字节）`);
     }
