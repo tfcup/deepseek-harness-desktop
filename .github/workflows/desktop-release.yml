@@ -76,6 +76,29 @@ jobs:
             exit 1
           fi
 
+      - name: 解析 Baseline Harness 版本
+        id: baseline
+        if: ${{ inputs.runtime_artifact == '' }}
+        run: |
+          # tag/手动发布复用 upstream-watch 最后完整发布成功的精确版本。
+          HARNESS_VERSION="$(tr -d '[:space:]' < runtime/.known-version)"
+          if [[ -z "$HARNESS_VERSION" ]]; then
+            echo "runtime/.known-version 为空，无法确定 Baseline Harness 版本" >&2
+            exit 1
+          fi
+          echo "HARNESS_VERSION=$HARNESS_VERSION" >> "$GITHUB_ENV"
+          echo "harness_version=$HARNESS_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Baseline Harness version: $HARNESS_VERSION"
+
+      # dsh-ui 由 App Bundle 独立携带并在启动时覆盖，因此 UI-only 发布可以复用 Runtime。
+      - name: 恢复已验证的 Runtime Cache
+        id: runtime-cache
+        if: ${{ inputs.runtime_artifact == '' }}
+        uses: actions/cache/restore@v6
+        with:
+          path: runtime/dist
+          key: runtime-v2-${{ runner.os }}-arm64-${{ steps.baseline.outputs.harness_version }}-${{ hashFiles('runtime/scripts/**', 'packages/dsh-theme/**', 'packages/dsh-tools/**', 'packages/dsh-integrations/**', 'packages/dsh-desktop-bundle/**') }}
+
       - name: 下载已验证的 Runtime Artifact
         if: ${{ inputs.runtime_artifact != '' }}
         uses: actions/download-artifact@v7
@@ -83,9 +106,9 @@ jobs:
           name: ${{ inputs.runtime_artifact }}
           path: runtime/dist
 
-      # 手动或 tag 发布没有前置 runtime-build，因此从已确认版本重新构建基线。
-      - name: 准备 Baseline Runtime（手动/tag 发布）
-        if: ${{ inputs.runtime_artifact == '' }}
+      # 只有没有同版本验证缓存时，tag/手动发布才从零安装完整 Harness 依赖树。
+      - name: 准备 Baseline Runtime（Cache Miss）
+        if: ${{ inputs.runtime_artifact == '' && steps.runtime-cache.outputs.cache-hit != 'true' }}
         env:
           # npm 解析 dsh 的大型依赖图会超过 Node 默认约 2 GB 的 V8 堆上限；
           # macos-14 Runner 有 7 GB 内存，这里仅为该步骤提升至 4 GB。
@@ -96,26 +119,36 @@ jobs:
           #  - npm 布局是真实目录（无符号链接），runtime zip 更小（~80MB vs pnpm ~450MB）。
           mkdir -p "$RUNNER_TEMP/dsh-base"
           cd "$RUNNER_TEMP/dsh-base"
-          # Desktop Release 复用 upstream-watch 已确认的版本，避免 latest 在构建期间漂移。
-          HARNESS_VERSION="$(tr -d '[:space:]' < "$GITHUB_WORKSPACE/runtime/.known-version")"
-          if [[ -z "$HARNESS_VERSION" ]]; then
-            echo "runtime/.known-version 为空，无法确定 Baseline Harness 版本" >&2
-            exit 1
-          fi
           printf '{"name":"dsh-base","private":true,"dependencies":{"@deepseek-ai/dsh":"%s"}}\n' \
             "$HARNESS_VERSION" > package.json
-          echo "Baseline Harness version: $HARNESS_VERSION"
           npm install --no-audit --no-fund
           cd "$GITHUB_WORKSPACE"
           OUT=$(DSH_BASE="$RUNNER_TEMP/dsh-base" \
             node runtime/scripts/build-runtime.ts --out runtime/dist)
           echo "$OUT"
-          echo "STAGING_DIR=$(echo "$OUT" | grep '^STAGING=' | cut -d= -f2)" >> "$GITHUB_ENV"
         shell: bash
+
+      - name: 校验 Runtime Artifact
+        run: |
+          ARGS=(--dist runtime/dist)
+          if [[ -n "${HARNESS_VERSION:-}" ]]; then
+            ARGS+=(--expected-harness "$HARNESS_VERSION" --extract "$RUNNER_TEMP/runtime-cache-verify")
+          fi
+          node runtime/scripts/prepare-runtime-artifact.ts "${ARGS[@]}" >> "$GITHUB_ENV"
 
       - name: Compatibility Gate（手动/tag 基线 Runtime 可用性）
         if: ${{ inputs.runtime_artifact == '' }}
         run: node runtime/scripts/verify-runtime.ts --runtime "$STAGING_DIR"
+
+      # actions/cache 的 Key 不可覆盖；仅在 Cache Miss 且 Gate 成功后保存可信三件套。
+      - name: 保存已验证的 Runtime Cache
+        if: >-
+          ${{ github.ref == 'refs/heads/main' && inputs.runtime_artifact == '' &&
+          steps.runtime-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v6
+        with:
+          path: runtime/dist
+          key: ${{ steps.runtime-cache.outputs.cache-primary-key }}
 
       # App 自带 dsh-ui 会覆盖 Runtime 中的副本，因此所有发布入口都必须验证当前仓库版本。
       - name: Desktop UI 行为门（Service 注入 → Slot 注册 → 握手前可见）
@@ -123,23 +156,10 @@ jobs:
 
       - name: 嵌入已验证的 Baseline Runtime
         run: |
-          ZIP=$(find runtime/dist -maxdepth 1 -name 'runtime-*-arm64.zip' | head -1)
-          MANIFEST=$(find runtime/dist -maxdepth 1 -name 'manifest-*.json' | head -1)
-          SHA_FILE="${ZIP}.sha256"
-          if [[ -z "$ZIP" || -z "$MANIFEST" || ! -s "$SHA_FILE" ]]; then
-            echo "Runtime Artifact 缺少 zip、manifest 或 sha256" >&2
-            exit 1
-          fi
-          EXPECTED=$(awk '{print $1}' "$SHA_FILE")
-          ACTUAL=$(shasum -a 256 "$ZIP" | awk '{print $1}')
-          if [[ "$EXPECTED" != "$ACTUAL" ]]; then
-            echo "Runtime Artifact SHA256 校验失败" >&2
-            exit 1
-          fi
           mkdir -p apps/desktop/src-tauri/resources/baseline
-          cp "$ZIP" apps/desktop/src-tauri/resources/baseline/runtime.zip
-          cp "$MANIFEST" apps/desktop/src-tauri/resources/baseline/manifest.json
-          cp "$SHA_FILE" apps/desktop/src-tauri/resources/baseline/runtime.zip.sha256
+          cp "$RUNTIME_ZIP" apps/desktop/src-tauri/resources/baseline/runtime.zip
+          cp "$RUNTIME_MANIFEST" apps/desktop/src-tauri/resources/baseline/manifest.json
+          cp "$RUNTIME_SHA_FILE" apps/desktop/src-tauri/resources/baseline/runtime.zip.sha256
 
       # ---------- 签名与公证 ----------
       - name: 导入 Developer ID 证书到 Keychain
@@ -159,6 +179,21 @@ jobs:
       - name: 添加 arm64 交叉编译目标（runner 为 x64）
         run: rustup target add aarch64-apple-darwin
 
+      - name: 恢复 Rust/Tauri 编译缓存
+        id: cargo-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            apps/desktop/src-tauri/target
+            !apps/desktop/src-tauri/target/**/bundle
+          # Desktop 版本进入精确 Key，restore-keys 只复用依赖/中间产物，最终 App 必须重新链接。
+          key: cargo-v2-${{ runner.os }}-aarch64-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}-${{ env.VERSION }}-${{ hashFiles('apps/desktop/src-tauri/Cargo.toml', 'apps/desktop/src-tauri/build.rs', 'apps/desktop/src-tauri/src/**/*.rs', 'apps/desktop/src-tauri/tauri.conf.json') }}
+          restore-keys: |
+            cargo-v2-${{ runner.os }}-aarch64-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}-
+
       - name: 构建签名 DMG + App（updater 产物 .app.tar.gz）
         env:
           TAURI_SIGNING_IDENTITY: ${{ secrets.TAURI_SIGNING_IDENTITY || 'Developer ID Application' }}
@@ -168,6 +203,19 @@ jobs:
           cd apps/desktop
           # 只在构建配置中覆盖版本，避免 Release workflow 自动提交版本文件。
           pnpm tauri build --target aarch64-apple-darwin --config "{\"version\":\"${VERSION}\"}"
+
+      # Tag Cache 彼此隔离且不能被下一版本读取，只在 main 范围保存供所有 tag 恢复。
+      - name: 保存 Rust/Tauri 编译缓存
+        if: ${{ github.ref == 'refs/heads/main' && steps.cargo-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            apps/desktop/src-tauri/target
+            !apps/desktop/src-tauri/target/**/bundle
+          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
 
       - name: 校验代码签名
         if: ${{ env.HAS_CERT == 'true' }}

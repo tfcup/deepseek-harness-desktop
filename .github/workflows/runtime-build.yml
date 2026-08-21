@@ -46,7 +46,7 @@ jobs:
     if: ${{ needs.preflight.outputs.should_build == 'true' }}
     runs-on: macos-14
     outputs:
-      harness_version: ${{ steps.build.outputs.harness_version }}
+      harness_version: ${{ steps.resolve-harness.outputs.harness_version }}
     steps:
       # v5 系列使用 Node 24，避免后续 Runtime 构建继续出现 Node 20 弃用警告。
       - uses: actions/checkout@v5
@@ -60,37 +60,70 @@ jobs:
         with:
           version: 11
 
+      - name: 解析精确 Harness 版本
+        id: resolve-harness
+        env:
+          REQUESTED_VERSION: ${{ inputs.harness_version }}
+        run: |
+          # latest 只在这里解析一次，后续 npm 安装、缓存键和发布确认全部使用同一版本。
+          HARNESS_VERSION="$REQUESTED_VERSION"
+          if [[ -z "$HARNESS_VERSION" ]]; then
+            HARNESS_VERSION="$(npm view @deepseek-ai/dsh version)"
+          fi
+          if [[ ! "$HARNESS_VERSION" =~ ^[0-9A-Za-z.+-]+$ ]]; then
+            echo "Harness 版本格式无效: $HARNESS_VERSION" >&2
+            exit 1
+          fi
+          echo "HARNESS_VERSION=$HARNESS_VERSION" >> "$GITHUB_ENV"
+          echo "harness_version=$HARNESS_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Harness version: $HARNESS_VERSION"
+
+      # dsh-ui 由 Desktop App Bundle 独立覆盖，不属于 Runtime Cache 的失效条件。
+      - name: 恢复已验证的 Runtime Cache
+        id: runtime-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: runtime/dist
+          key: runtime-v2-${{ runner.os }}-arm64-${{ steps.resolve-harness.outputs.harness_version }}-${{ hashFiles('runtime/scripts/**', 'packages/dsh-theme/**', 'packages/dsh-tools/**', 'packages/dsh-integrations/**', 'packages/dsh-desktop-bundle/**') }}
+
       - name: 固定 @deepseek-ai/dsh 版本并安装到基座
+        if: ${{ steps.runtime-cache.outputs.cache-hit != 'true' }}
         run: |
           # 基座装到 RUNNER_TEMP（仓库外）。用 npm：原生跑 postinstall、真实目录布局、
           # runtime zip 更小（pnpm 布局会得到 ~450MB 且依赖符号链接，zip 默认跟随链接膨胀）
           mkdir -p "$RUNNER_TEMP/dsh-base"
           cd "$RUNNER_TEMP/dsh-base"
-          echo '{"name":"dsh-base","private":true,"dependencies":{"@deepseek-ai/dsh":"${{ inputs.harness_version || 'latest' }}"}}' > package.json
+          printf '{"name":"dsh-base","private":true,"dependencies":{"@deepseek-ai/dsh":"%s"}}\n' \
+            "$HARNESS_VERSION" > package.json
           npm install --no-audit --no-fund
           echo "DSH_BASE_DIR=$RUNNER_TEMP/dsh-base" >> "$GITHUB_ENV"
 
       - name: 构建 Runtime（zip + sha256 + manifest）
-        id: build
+        if: ${{ steps.runtime-cache.outputs.cache-hit != 'true' }}
         run: |
           OUT=$(node runtime/scripts/build-runtime.ts --dsh-base "$DSH_BASE_DIR")
           echo "$OUT"
-          echo "STAGING_DIR=$(echo "$OUT" | grep '^STAGING=' | cut -d= -f2)" >> "$GITHUB_ENV"
-          VERSION=$(echo "$OUT" | grep '^\[build\] runtimeVersion=' | sed -E 's/.*runtimeVersion=([0-9.]+).*/\1/')
-          HARNESS_VERSION=$(echo "$OUT" | sed -nE 's/^\[build\] harness=([^ ]+).*/\1/p' | head -1)
-          if [[ -z "$HARNESS_VERSION" ]]; then
-            echo "无法从构建输出解析 Harness 版本" >&2
-            exit 1
-          fi
-          echo "RUNTIME_VERSION=$VERSION" >> "$GITHUB_ENV"
-          echo "HARNESS_VERSION=$HARNESS_VERSION" >> "$GITHUB_ENV"
-          echo "harness_version=$HARNESS_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: 校验 Runtime Artifact 并准备 Compatibility Gate
+        run: |
+          node runtime/scripts/prepare-runtime-artifact.ts \
+            --dist runtime/dist \
+            --expected-harness "$HARNESS_VERSION" \
+            --extract "$RUNNER_TEMP/runtime-cache-verify" >> "$GITHUB_ENV"
 
       - name: Desktop UI 行为门（Service 注入 → Slot 注册 → 握手前可见）
         run: node packages/harness-adapter/scripts/verify-ui-logic.ts
 
       - name: Compatibility Gate（全新 DSH_HOME：扩展加载 → 启动 → 引导图 → client.js）
         run: node runtime/scripts/verify-runtime.ts --runtime "$STAGING_DIR"
+
+      # 只保存已经通过完整 Gate 的三件套；同一 Key 的 Cache 不覆盖，避免并发污染。
+      - name: 保存已验证的 Runtime Cache
+        if: ${{ github.ref == 'refs/heads/main' && steps.runtime-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v6
+        with:
+          path: runtime/dist
+          key: ${{ steps.runtime-cache.outputs.cache-primary-key }}
 
       - name: 上传产物（zip + sha256 + manifest）
         uses: actions/upload-artifact@v6
