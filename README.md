@@ -172,6 +172,22 @@ git push origin main                         # runs desktop-test (quality gate)
 
 The workflow applies its resolved version as a Tauri build override, and uses the same value for the DMG name, updater manifest, tag and GitHub Release.
 
+### CI Workflows
+
+| Workflow | Trigger | Responsibility |
+| --- | --- | --- |
+| [`upstream-watch.yml`](.github/workflows/upstream-watch.yml) | Hourly schedule or manual run | Compare the latest npm Harness with `runtime/.known-version`, then dispatch a Runtime build when a new version appears |
+| [`runtime-build.yml`](.github/workflows/runtime-build.yml) | Upstream watcher or manual run | Pin Harness, build the Runtime, run the Compatibility Gate, invoke Desktop Release, then confirm the known version after the complete release succeeds |
+| [`desktop-release.yml`](.github/workflows/desktop-release.yml) | Runtime build, `v*` tag or manual run | Use a verified Runtime Artifact or the confirmed Harness version to build the DMG, signed Updater archive and `latest.json` |
+| [`desktop-test.yml`](.github/workflows/desktop-test.yml) | Push or pull request to `main` | Run the Rust, frontend and Extension Pack quality gates |
+
+Runtime builds do not create independent GitHub Releases. The automated pipeline updates
+`.known-version` only after Desktop Release succeeds, so a build or publishing failure remains
+eligible for retry during the next upstream check.
+
+For a manual `desktop-release`, leave `version` empty to increment the highest `vX.Y.Z` patch
+version automatically, or enter an explicit version to use it unchanged.
+
 ## FAQ
 
 - **Port 3080 is already in use?** The app stops whatever is listening on 3080 (LISTEN sockets only — it never touches processes that merely hold connections, e.g. a browser) and starts its own isolated instance.

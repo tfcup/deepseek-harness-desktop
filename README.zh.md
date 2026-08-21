@@ -171,6 +171,20 @@ git push origin main                         # 触发 desktop-test（质量门�
 
 工作流会把解析后的版本作为 Tauri 构建覆盖值，并统一用于 DMG 名称、更新清单、tag 和 GitHub Release。
 
+### CI 工作流
+
+| 工作流 | 触发方式 | 职责 |
+| --- | --- | --- |
+| [`upstream-watch.yml`](.github/workflows/upstream-watch.yml) | 每小时或手动运行 | 比较 npm 最新 Harness 与 `runtime/.known-version`，发现新版本后触发 Runtime 构建 |
+| [`runtime-build.yml`](.github/workflows/runtime-build.yml) | 上游监控或手动运行 | 固定 Harness、构建 Runtime、执行 Compatibility Gate、调用 Desktop Release，并在完整发布成功后确认已知版本 |
+| [`desktop-release.yml`](.github/workflows/desktop-release.yml) | Runtime 构建、`v*` tag 或手动运行 | 使用已验证的 Runtime Artifact 或已确认 Harness 版本构建 DMG、签名 Updater 包和 `latest.json` |
+| [`desktop-test.yml`](.github/workflows/desktop-test.yml) | push 或 PR 到 `main` | 执行 Rust、前端和 Extension Pack 质量门禁 |
+
+Runtime 构建不会创建独立 GitHub Release。自动流水线只有在 Desktop Release 成功后才更新
+`.known-version`，因此任何构建或发布失败都会在下一轮上游检查时得到重试机会。
+
+手动执行 `desktop-release` 时，`version` 留空会对最高 `vX.Y.Z` 自动增加 patch；填写版本则严格使用指定版本。
+
 ## 常见问题
 
 - **3080 端口被占用？** 应用会结束 3080 端口上的监听进程（**仅 LISTEN socket**，绝不碰只持有普通连接的进程，如浏览器），再启动自己的隔离实例。
