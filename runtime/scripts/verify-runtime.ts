@@ -19,6 +19,7 @@ import {
   installBundleToProfile,
   writeUserPatch,
 } from "../../packages/harness-adapter/src/index.ts";
+import { extractDshBootJson } from "../../packages/harness-adapter/scripts/boot-html.ts";
 
 const RUNTIME_DIR = arg("--runtime", "");
 const PORT = Number(arg("--port", "3086"));
@@ -114,30 +115,44 @@ async function main(): Promise<void> {
 
     // 4) 启动 + 健康检查 + 引导图 + client.js
     console.log("\n[4] 启动产物 Harness 并验证加载链…");
-    server = spawn(harnessBin, ["--profile", "web", "--port", String(PORT)], {
+    server = spawn(harnessBin, ["--profile", "web", "--port", String(PORT), "--no-open"], {
       env: { ...process.env, DSH_HOME: dshHome, DSH_TELEMETRY_DISABLED: "1" },
       stdio: ["ignore", "pipe", "pipe"],
     });
+    let serverOut = "";
     let serverErr = "";
+    let serverExit: { code: number | null; signal: NodeJS.Signals | null } | null = null;
+    server.stdout?.on("data", (d: Buffer) => (serverOut += d.toString()));
     server.stderr?.on("data", (d: Buffer) => (serverErr += d.toString()));
+    server.once("exit", (code, signal) => {
+      serverExit = { code, signal };
+    });
 
     let bootJson: string | null = null;
+    let serverResponded = false;
     for (let i = 0; i < 40; i++) {
       await sleep(1000);
       try {
         const res = await fetch(`http://127.0.0.1:${PORT}/`, { signal: AbortSignal.timeout(3000) });
         if (!res.ok) continue;
+        serverResponded = true;
         const html = await res.text();
-        const m = /window\.__DSH_BOOT__\s*=\s*(\{.*?\})\s*<\/script>/s.exec(html);
-        if (m) {
-          bootJson = m[1];
-          break;
-        }
+        bootJson = extractDshBootJson(html);
+        if (bootJson) break;
       } catch {
         /* 未就绪 */
       }
+      if (serverExit) break;
     }
-    if (!bootJson) fail(`服务器未就绪或 __DSH_BOOT__ 缺失。stderr: ${serverErr.slice(-300)}`);
+    if (!bootJson) {
+      const reason = serverResponded ? "服务器已就绪，但首页无法解析 __DSH_BOOT__" : "服务器未就绪";
+      const exit = serverExit
+        ? `code=${serverExit.code ?? "null"} signal=${serverExit.signal ?? "null"}`
+        : "仍在运行";
+      fail(
+        `${reason}。进程: ${exit}\nstdout 尾部: ${serverOut.slice(-500)}\nstderr 尾部: ${serverErr.slice(-500)}`,
+      );
+    }
     const boot = JSON.parse(bootJson) as { entries?: Array<{ id: string; url: string; rev: string }> };
     const bootIds = boot.entries?.map((e) => e.id) ?? [];
     for (const clientId of ["dsh-theme", "dsh-ui"] as const) {

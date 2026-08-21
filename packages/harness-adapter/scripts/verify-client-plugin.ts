@@ -17,6 +17,7 @@ import {
   installBundleToProfile,
   writeUserPatch,
 } from "../src/index.ts";
+import { extractDshBootJson } from "./boot-html.ts";
 
 const KEEP = process.argv.includes("--keep");
 const DSH_BIN = process.env.DSH_BIN ?? "dsh";
@@ -89,30 +90,42 @@ async function main(): Promise<void> {
 
     // 2) 启动服务器，检查 __DSH_BOOT__ 引导图（两个客户端插件都应出现）
     console.log("\n[2] 启动 dsh web 并检查客户端引导图…");
-    server = spawn(DSH_BIN, ["--profile", "web", "--port", String(PORT)], {
+    server = spawn(DSH_BIN, ["--profile", "web", "--port", String(PORT), "--no-open"], {
       env: { ...process.env, DSH_HOME: dshHome, DSH_TELEMETRY_DISABLED: "1" },
       stdio: ["ignore", "pipe", "pipe"],
     });
+    let serverOut = "";
     let serverErr = "";
+    let serverExit: { code: number | null; signal: NodeJS.Signals | null } | null = null;
+    server.stdout?.on("data", (d: Buffer) => (serverOut += d.toString()));
     server.stderr?.on("data", (d: Buffer) => (serverErr += d.toString()));
+    server.once("exit", (code, signal) => {
+      serverExit = { code, signal };
+    });
     let bootJson: string | null = null;
+    let serverResponded = false;
     for (let i = 0; i < 30; i++) {
       await sleep(1000);
       try {
         const res = await fetch(`http://127.0.0.1:${PORT}/`, { signal: AbortSignal.timeout(3000) });
         if (!res.ok) continue;
+        serverResponded = true;
         const html = await res.text();
-        const m = /window\.__DSH_BOOT__\s*=\s*(\{.*?\})\s*<\/script>/s.exec(html);
-        if (m) {
-          bootJson = m[1];
-          break;
-        }
+        bootJson = extractDshBootJson(html);
+        if (bootJson) break;
       } catch {
         // 未就绪，继续等
       }
+      if (serverExit) break;
     }
     if (!bootJson) {
-      fail(`服务器未就绪或 __DSH_BOOT__ 缺失。stderr 尾部: ${serverErr.slice(-300)}`);
+      const reason = serverResponded ? "服务器已就绪，但首页无法解析 __DSH_BOOT__" : "服务器未就绪";
+      const exit = serverExit
+        ? `code=${serverExit.code ?? "null"} signal=${serverExit.signal ?? "null"}`
+        : "仍在运行";
+      fail(
+        `${reason}。进程: ${exit}\nstdout 尾部: ${serverOut.slice(-500)}\nstderr 尾部: ${serverErr.slice(-500)}`,
+      );
     }
     let boot: { entries?: Array<{ id: string; url: string; rev: string }> };
     try {
