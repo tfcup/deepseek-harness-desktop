@@ -243,21 +243,6 @@ fn is_supported_node_version(version: &str) -> bool {
     }
 }
 
-/// 本机 Node.js 是否可用且版本兼容
-pub fn is_runtime_compatible(_app_handle: &tauri::AppHandle) -> bool {
-    let Some(node) = find_local_node_binary() else {
-        return false;
-    };
-    let Some(output) = node_version_output(&node) else {
-        return false;
-    };
-    if !output.status.success() {
-        return false;
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    is_supported_node_version(stdout.trim())
-}
-
 /// 前端启动 WebView 所需的最小 Runtime 信息。
 #[derive(Debug, Clone, Serialize)]
 pub struct RuntimeInfo {

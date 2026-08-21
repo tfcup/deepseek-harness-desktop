@@ -523,12 +523,6 @@ mod tests {
     }
 
     #[test]
-    fn next_version_seq_increments() {
-        // 纯逻辑验证：version_gt 对同日序号递增
-        assert!(RuntimeManifest::version_gt("2026.08.15.2", "2026.08.15.1"));
-    }
-
-    #[test]
     fn baseline_dir_resolves_nested_and_flat_layouts() {
         let dir = std::env::temp_dir().join(format!("dsh_baseline_dir_{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();

@@ -111,13 +111,6 @@ impl RuntimeManifest {
         Ok(())
     }
 
-    /// 按 `YYYY.MM.DD.N` 的数值段比较，非法版本永远不会被判定为更新。
-    pub fn version_gt(a: &str, b: &str) -> bool {
-        match (version_parts(a), version_parts(b)) {
-            (Some(left), Some(right)) => left > right,
-            _ => false,
-        }
-    }
 }
 
 /// 严格解析 Runtime 版本；固定四段可同时阻止路径穿越和模糊比较。
@@ -220,16 +213,6 @@ mod tests {
             sha256: "a".repeat(64),
             published_at: "2026-08-21T00:00:00Z".to_string(),
         }
-    }
-
-    #[test]
-    fn version_gt_compares_numeric_segments() {
-        assert!(RuntimeManifest::version_gt("2026.08.16.1", "2026.08.15.1"));
-        assert!(RuntimeManifest::version_gt("2026.08.15.2", "2026.08.15.1"));
-        assert!(!RuntimeManifest::version_gt("2026.08.15.1", "2026.08.15.1"));
-        assert!(!RuntimeManifest::version_gt("2026.08.15.1", "2026.08.16.1"));
-        assert!(!RuntimeManifest::version_gt("../2026.08.16.1", "2026.08.15.1"));
-        assert!(!RuntimeManifest::version_gt("2026.8.16.1", "2026.08.15.1"));
     }
 
     #[test]

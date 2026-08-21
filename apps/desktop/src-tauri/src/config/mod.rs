@@ -1,6 +1,5 @@
 mod constants;
 mod format;
-pub mod i18n;
 mod runtime;
 mod setting;
 mod theme;

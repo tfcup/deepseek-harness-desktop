@@ -29,16 +29,12 @@ pub async fn get_runtime_info(app_handle: AppHandle) -> Result<config::RuntimeIn
     Ok(config::runtime_info(&app_handle, port))
 }
 
-/// 保存桌面外壳语言偏好，并同步 Rust 侧安装/错误消息语言。
+/// 保存桌面外壳语言偏好；界面文案由前端和 Harness 分别管理。
 #[tauri::command]
 pub fn set_language(app_handle: AppHandle, lang: String) {
     let mut setting = config::get_store_dat_setting(&app_handle);
-    setting.language = lang.clone();
+    setting.language = lang;
     config::set_store_dat_setting(&app_handle, setting);
-    config::i18n::set_language(match lang.as_str() {
-        "en" => config::i18n::Lang::En,
-        _ => config::i18n::Lang::Zh,
-    });
 }
 
 /// 读取 Harness 主题偏好，让外层加载和错误界面与内嵌页面保持一致。
