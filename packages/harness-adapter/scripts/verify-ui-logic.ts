@@ -111,6 +111,7 @@ async function main(): Promise<void> {
   const postMessages: unknown[] = [];
   const messageListeners: Array<(event: unknown) => void> = [];
   const styleValues = new Map<string, string>();
+  const bodyStyleValues = new Map<string, string>();
   const styleElements: Array<{ dataset: Record<string, string>; textContent: string }> = [];
   const rootAttributes = new Set<string>();
   const settingsWrites: Array<{ field: string; value: unknown }> = [];
@@ -164,8 +165,8 @@ async function main(): Promise<void> {
     // Harness 官方排版 token 挂在 body，测试也必须保留这个级联层级。
     body: {
       style: {
-        setProperty: (name: string, value: string) => styleValues.set(name, value),
-        removeProperty: (name: string) => styleValues.delete(name),
+        setProperty: (name: string, value: string) => bodyStyleValues.set(name, value),
+        removeProperty: (name: string) => bodyStyleValues.delete(name),
       },
     },
     querySelector: () => null,
@@ -258,9 +259,18 @@ async function main(): Promise<void> {
   if (!styleValues.get("--ds-font-family-code")?.includes("DSH Desktop selected Code JetBrainsMono-Regular")) {
     fail("编程虚拟字体家族没有应用到 --ds-font-family-code");
   }
+  if (!bodyStyleValues.get("--dsw-font-family")?.includes("DSH Desktop selected UI PingFangSC-Medium") ||
+      !bodyStyleValues.get("--ds-font-family-code")?.includes("DSH Desktop selected Code JetBrainsMono-Regular")) {
+    fail("字体家族没有同时应用到 html 和 body");
+  }
   if (styleValues.get("--dsw-font-markdown-base-font-size") !== "18px" ||
-      styleValues.get("--dsw-font-markdown-base") !== "18px/30px var(--dsw-font-family)") {
+      styleValues.get("--dsw-font-markdown-base") !== "18px/28px var(--dsw-font-family)" ||
+      bodyStyleValues.get("--dsw-font-markdown-base-font-size") !== "18px") {
     fail("界面字号没有同时应用到 Markdown 正文的拆分和 shorthand token");
+  }
+  if (styleValues.get("--dsw-font-s-14-font-size") !== "17px" ||
+      styleValues.get("--dsw-font-xs-13-font-size") !== "15px") {
+    fail("界面语义字号没有按 14px 基准表等比缩放");
   }
   if (styleValues.get("--dsw-font-markdown-code-block-font-size") !== "15px" ||
       styleValues.get("--dsw-font-markdown-code-font-size") !== "16px") {
@@ -389,6 +399,9 @@ async function main(): Promise<void> {
   await Promise.resolve();
   if (styleValues.has("--dsw-font-family") || !styleValues.has("--ds-font-family-code")) {
     fail("恢复 UI 系统默认时不应清除独立的编程字体覆盖");
+  }
+  if (bodyStyleValues.has("--dsw-font-family") || !bodyStyleValues.has("--ds-font-family-code")) {
+    fail("恢复 UI 系统默认时 html/body 字体状态不一致");
   }
   if ([...activeFontFaces].some((face) => face.family.startsWith("DSH Desktop selected UI ")) ||
       ![...activeFontFaces].some((face) => face.family.startsWith("DSH Desktop selected Code "))) {

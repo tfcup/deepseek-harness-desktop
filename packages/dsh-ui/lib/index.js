@@ -8,7 +8,7 @@ const FontSettingsSchema = z.object({
   uiFamily: z.string().default("system"),
   uiPostscriptName: z.string().default(""),
   uiWeight: z.number().default(400),
-  uiSize: z.number().default(16),
+  uiSize: z.number().default(14),
   codeFamily: z.string().default("system"),
   codePostscriptName: z.string().default(""),
   codeWeight: z.number().default(400),

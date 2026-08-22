@@ -178,7 +178,7 @@ window.__ModuleLoader__.load({
         uiFamily: text("uiFamily", "system"),
         uiPostscriptName: text("uiPostscriptName", ""),
         uiWeight: weight("uiWeight"),
-        uiSize: size("uiSize", 16),
+        uiSize: size("uiSize", 14),
         codeFamily: text("codeFamily", "system"),
         codePostscriptName: text("codePostscriptName", ""),
         codeWeight: weight("codeWeight"),
@@ -293,9 +293,22 @@ window.__ModuleLoader__.load({
      * 是因为不同官方组件会读取两种形态；不使用 DOM 选择器则可避免绑定上游压缩类名。
      */
     function applyFontSizeTokens(root, uiSize, codeSize) {
-      /** 层级差值可能在用户输入极小字号时得到非正数，只对派生值做 CSS 有效性保护。 */
-      function derivedSize(base, offset) {
-        return Math.max(1, base + offset);
+      var baseUiSize = 14;
+      var uiScale = uiSize / baseUiSize;
+
+      /**
+       * 像 Codex Desktop 一样从 14px 基准表等比缩放并取整，避免小字号使用固定减法后
+       * 层级差迅速扩大。用户输入本身不限范围，只保护派生 token 不变成非正数。
+       */
+      function scaledUiSize(baseSize) {
+        // 正文 token 必须与用户输入完全一致；只对其他层级做 Codex 风格的像素取整。
+        if (baseSize === baseUiSize) return uiSize;
+        return Math.max(1, Math.round(baseSize * uiScale));
+      }
+
+      /** 代码字号保持独立；派生的行内/小型代码只做最低 CSS 有效性保护。 */
+      function derivedCodeSize(offset) {
+        return Math.max(1, codeSize + offset);
       }
 
       /** 写入一个 UI 语义 token，保留它原有的字重和斜体层级。 */
@@ -317,51 +330,51 @@ window.__ModuleLoader__.load({
         root.style.setProperty(prefix + "-line-height", lineHeight + "px");
       }
 
+      // 基准表的前两个数字分别是 14px UI 下的字号和行高。字重/斜体仍保留 Harness 语义。
       var uiTokens = [
-        ["markdown-h1", 8, 10, 700, "normal"],
-        ["markdown-h2", 6, 10, 700, "normal"],
-        ["markdown-h3", 4, 10, 700, "normal"],
-        ["markdown-h4", 0, 12, 600, "normal"],
-        ["markdown-base", 0, 12, 400, "normal"],
-        ["markdown-base-strong", 0, 12, 600, "normal"],
-        ["markdown-base-italic", 0, 12, 400, "italic"],
-        ["markdown-base-strong-italic", 0, 12, 600, "italic"],
-        ["markdown-table", -1, 10, 400, "normal"],
-        ["markdown-table-head", -1, 10, 500, "normal"],
-        ["markdown-small", -2, 10, 400, "normal"],
-        ["markdown-small-strong", -2, 10, 600, "normal"],
-        ["markdown-small-italic", -2, 10, 400, "italic"],
-        ["markdown-small-strong-italic", -2, 10, 600, "italic"],
-        ["xl-24", 8, 8, 600, "normal"],
-        ["l-20", 4, 8, 500, "normal"],
-        ["m-18", 0, 12, 500, "normal"],
-        ["base-16", 0, 8, 400, "normal"],
-        ["base-strong-16", 0, 8, 500, "normal"],
-        ["s-14", -2, 8, 400, "normal"],
-        ["s-strong-14", -2, 8, 500, "normal"],
-        ["xs-13", -3, 7, 400, "normal"],
-        ["xs-strong-13", -3, 7, 500, "normal"],
-        ["xxs-12", -4, 6, 400, "normal"],
-        ["xxs-strong-12", -4, 6, 500, "normal"],
-        ["xxxs-11", -5, 3, 400, "normal"],
-        ["xxxs-strong-11", -5, 3, 500, "normal"],
+        ["markdown-h1", 24, 30, 700, "normal"],
+        ["markdown-h2", 20, 25, 700, "normal"],
+        ["markdown-h3", 18, 23, 700, "normal"],
+        ["markdown-h4", 14, 22, 600, "normal"],
+        ["markdown-base", 14, 22, 400, "normal"],
+        ["markdown-base-strong", 14, 22, 600, "normal"],
+        ["markdown-base-italic", 14, 22, 400, "italic"],
+        ["markdown-base-strong-italic", 14, 22, 600, "italic"],
+        ["markdown-table", 13, 21, 400, "normal"],
+        ["markdown-table-head", 13, 21, 500, "normal"],
+        ["markdown-small", 12, 20, 400, "normal"],
+        ["markdown-small-strong", 12, 20, 600, "normal"],
+        ["markdown-small-italic", 12, 20, 400, "italic"],
+        ["markdown-small-strong-italic", 12, 20, 600, "italic"],
+        ["xl-24", 24, 32, 600, "normal"],
+        ["l-20", 20, 28, 500, "normal"],
+        ["m-18", 18, 26, 500, "normal"],
+        ["base-16", 14, 22, 400, "normal"],
+        ["base-strong-16", 14, 22, 500, "normal"],
+        ["s-14", 13, 20, 400, "normal"],
+        ["s-strong-14", 13, 20, 500, "normal"],
+        ["xs-13", 12, 18, 400, "normal"],
+        ["xs-strong-13", 12, 18, 500, "normal"],
+        ["xxs-12", 11, 16, 400, "normal"],
+        ["xxs-strong-12", 11, 16, 500, "normal"],
+        ["xxxs-11", 10, 14, 400, "normal"],
+        ["xxxs-strong-11", 10, 14, 500, "normal"],
       ];
       uiTokens.forEach(function applyUiToken(token) {
-        var size = derivedSize(uiSize, token[1]);
-        setUiToken(token[0], size, derivedSize(size, token[2]), token[3], token[4]);
+        setUiToken(token[0], scaledUiSize(token[1]), scaledUiSize(token[2]), token[3], token[4]);
       });
 
-      var inlineCodeSize = derivedSize(codeSize, 1);
-      var blockCodeSize = derivedSize(codeSize, 0);
-      var smallCodeSize = derivedSize(codeSize, -1);
-      setCodeToken("markdown-code", inlineCodeSize, derivedSize(codeSize, 9));
-      setCodeToken("markdown-code-block", blockCodeSize, derivedSize(codeSize, 9));
-      setCodeToken("markdown-code-block-small", smallCodeSize, derivedSize(codeSize, 5));
+      var inlineCodeSize = derivedCodeSize(1);
+      var blockCodeSize = derivedCodeSize(0);
+      var smallCodeSize = derivedCodeSize(-1);
+      setCodeToken("markdown-code", inlineCodeSize, derivedCodeSize(9));
+      setCodeToken("markdown-code-block", blockCodeSize, derivedCodeSize(9));
+      setCodeToken("markdown-code-block-small", smallCodeSize, derivedCodeSize(5));
 
       // 徽标没有对应的官方 token，仅供桌面扩展自身的“等宽”标识跟随界面字号。
-      var badgeSize = derivedSize(uiSize, -6);
+      var badgeSize = scaledUiSize(10);
       root.style.setProperty("--dsh-desktop-font-badge-size", badgeSize + "px");
-      root.style.setProperty("--dsh-desktop-font-badge-line-height", derivedSize(badgeSize, 6) + "px");
+      root.style.setProperty("--dsh-desktop-font-badge-line-height", scaledUiSize(14) + "px");
     }
 
     /** 将持久化配置映射到 Harness 官方字体和字号变量。 */
@@ -382,19 +395,16 @@ window.__ModuleLoader__.load({
       };
       reloadSelectedFontFaces(normalized);
 
-      if (ui.family === "system") {
-        root.style.removeProperty("--dsw-font-family");
-      } else {
-        root.style.setProperty("--dsw-font-family", virtualFontStack(ui, false));
-      }
-      if (code.family === "system") {
-        root.style.removeProperty("--ds-font-family-code");
-      } else {
-        root.style.setProperty("--ds-font-family-code", virtualFontStack(code, true));
-      }
-      // 官方排版 token 定义在 body 上；写到同一元素的 inline style 才不会被 body 自身声明覆盖。
-      var typographyRoot = document.body && document.body.style ? document.body : root;
-      applyFontSizeTokens(typographyRoot, normalized.uiSize, normalized.codeSize);
+      var typographyRoots = [root];
+      if (document.body && document.body.style && document.body !== root) typographyRoots.push(document.body);
+      typographyRoots.forEach(function applyGlobalTypography(target) {
+        // 同时写入 html/body：覆盖官方 body token，也让挂在根节点的浮层和对话框继承同一配置。
+        if (ui.family === "system") target.style.removeProperty("--dsw-font-family");
+        else target.style.setProperty("--dsw-font-family", virtualFontStack(ui, false));
+        if (code.family === "system") target.style.removeProperty("--ds-font-family-code");
+        else target.style.setProperty("--ds-font-family-code", virtualFontStack(code, true));
+        applyFontSizeTokens(target, normalized.uiSize, normalized.codeSize);
+      });
     }
 
     /** 读取 UI 或代码字体选择，避免两组控件交叉覆盖。 */

@@ -7,6 +7,7 @@
 
 - 向 `settings.general.item` 注入两组本机字体/实际字重选择器和独立字号输入；
 - 通过官方 `settingsScope` 把 UI 与编程字体、字重和字号独立保存到 `desktop-fonts`；
+- UI 字号以 14px 为基准等比缩放全局语义 token，编程字号保持独立；
 - 向 `settings.general.item` 注入“应用更新”设置行；
 - 通过版本化 `postMessage` 协议请求 Tauri 父窗口列举本机字体或执行 App 更新，浏览器页不直接获得原生权限。
 
