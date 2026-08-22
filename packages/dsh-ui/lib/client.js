@@ -22,11 +22,12 @@ window.__ModuleLoader__.load({
     var FONT_REQUEST_TYPE = "dsh-desktop:font-request-v1";
     var FONT_STATE_TYPE = "dsh-desktop:font-state-v1";
     var FONT_SETTINGS_NAMESPACE = "desktop-fonts";
-    var UI_FONT_ALIAS = "DSH Desktop UI";
-    var CODE_FONT_ALIAS = "DSH Desktop Code";
+    var UI_FONT_ALIAS_PREFIX = "DSH Desktop selected UI ";
+    var CODE_FONT_ALIAS_PREFIX = "DSH Desktop selected Code ";
     var availableFontFamilies = [];
     var activeFontSettings = null;
-    var fontFaceStyle = null;
+    var loadedFontFaces = { ui: null, code: null };
+    var fontFaceLoadRevision = { ui: 0, code: 0 };
     var LOCALE_NAMESPACE = "desktop-update";
 
     var zh = {
@@ -126,8 +127,6 @@ window.__ModuleLoader__.load({
         ".dsh-font-picker__empty,.dsh-desktop-fonts__status{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}",
         ".dsh-font-picker__empty{padding:10px 8px}",
         ".dsh-desktop-fonts__warning{color:var(--dsw-alias-state-warn-primary)}",
-        "html[data-dsh-desktop-ui-font] body{font-weight:var(--dsh-desktop-ui-font-weight,400)}",
-        "html[data-dsh-desktop-code-font] code,html[data-dsh-desktop-code-font] pre,html[data-dsh-desktop-code-font] kbd,html[data-dsh-desktop-code-font] samp{font-weight:var(--dsh-desktop-code-font-weight,400)}",
         "@media(max-width:720px){.dsh-desktop-fonts__row{grid-template-columns:1fr}.dsh-desktop-fonts__controls{grid-template-columns:minmax(0,1fr) minmax(108px,.48fr)}}",
       ].join("");
       document.head.appendChild(tag);
@@ -183,71 +182,94 @@ window.__ModuleLoader__.load({
       return names.join(", ");
     }
 
+    /** 为所选具体 face 生成独立别名，避免 CSS 字重重新匹配到同家族的其他成员。 */
+    function selectedFontAlias(selection, code) {
+      var prefix = code ? CODE_FONT_ALIAS_PREFIX : UI_FONT_ALIAS_PREFIX;
+      return prefix + selection.postscriptName;
+    }
+
     /** 返回只用于实际界面的虚拟字体栈；字体选择器预览仍直接使用具体 face。 */
     function virtualFontStack(selection, code) {
-      var alias = code ? CODE_FONT_ALIAS : UI_FONT_ALIAS;
       var fallback = code
         ? '"SF Mono", "JetBrains Mono", "Fira Code", Consolas, Menlo, monospace'
         : '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif';
-      var names = [JSON.stringify(alias)];
+      var names = [JSON.stringify(selectedFontAlias(selection, code))];
       if (selection.family && selection.family !== "system") names.push(JSON.stringify(selection.family));
       names.push(fallback);
       return names.join(", ");
     }
 
-    /** 获取受控的字体规则节点；后续选择变化只替换内容，不累积旧字体。 */
-    function ensureFontFaceStyle() {
-      if (fontFaceStyle) return fontFaceStyle;
-      fontFaceStyle = document.createElement("style");
-      fontFaceStyle.dataset.plugin = "dsh-ui";
-      fontFaceStyle.dataset.pluginCss = "dsh-ui/desktop-font-faces";
-      document.head.appendChild(fontFaceStyle);
-      return fontFaceStyle;
-    }
-
-    /** 为一个已选择家族生成 face 列表；目录未就绪时先使用保存的精确 face。 */
-    function selectedFaces(selection) {
+    /** 从字体目录取得所选 face 的完整名称；目录未就绪时仍可使用已保存的 PostScript 名。 */
+    function selectedFaceInfo(selection) {
       var family = availableFontFamilies.find(function findFamily(candidate) {
         return candidate.family === selection.family;
       });
-      if (family && Array.isArray(family.faces) && family.faces.length) return family.faces;
-      if (!selection.postscriptName) return [];
-      return [{
+      var face = family && Array.isArray(family.faces)
+        ? family.faces.find(function findFace(candidate) {
+          return candidate.postscriptName === selection.postscriptName;
+        })
+        : null;
+      if (face) return face;
+      if (!selection.postscriptName) return null;
+      return {
         postscriptName: selection.postscriptName,
-        weight: selection.weight,
-        style: "normal",
-      }];
+        fullName: "",
+      };
     }
 
-    /** 将当前选中的 UI/编程字体映射成两个独立的本地虚拟字体家族。 */
-    function rebuildSelectedFontFaces(settings) {
-      var rules = [];
-      [
-        { alias: UI_FONT_ALIAS, selection: selectionFromSettings(settings, "ui") },
-        { alias: CODE_FONT_ALIAS, selection: selectionFromSettings(settings, "code") },
-      ].forEach(function addSelectedFamily(entry) {
-        if (entry.selection.family === "system") return;
-        selectedFaces(entry.selection).forEach(function addFace(face) {
-          if (!face || typeof face.postscriptName !== "string" || !face.postscriptName) return;
-          var weight = Math.max(1, Math.min(1000, Math.round(Number(face.weight) || 400)));
-          var style = face.style === "italic" || face.style === "oblique" ? face.style : "normal";
-          rules.push([
-            "@font-face{font-family:", JSON.stringify(entry.alias),
-            ";src:local(", JSON.stringify(face.postscriptName), ")",
-            ";font-weight:", String(weight),
-            ";font-style:", style,
-            ";font-display:swap}",
-          ].join(""));
-        });
+    /** 从 document.fonts 移除上一项选择，保证切换时只保留当前 UI/代码 face。 */
+    function removeLoadedFontFace(kind) {
+      var loaded = loadedFontFaces[kind];
+      if (loaded && document.fonts && typeof document.fonts.delete === "function") {
+        document.fonts.delete(loaded);
+      }
+      loadedFontFaces[kind] = null;
+    }
+
+    /**
+     * 仿照 Codex Desktop，仅把用户选中的具体 face 注册成虚拟字体。
+     * 不声明 CSS weight/style，避免组件的 400/500/600 重新选中同家族的其他真实成员。
+     */
+    function loadSelectedFontFace(kind, selection) {
+      var revision = ++fontFaceLoadRevision[kind];
+      removeLoadedFontFace(kind);
+      if (selection.family === "system" || !selection.postscriptName) return;
+      if (typeof FontFace !== "function" || !document.fonts || typeof document.fonts.add !== "function") return;
+
+      var face = selectedFaceInfo(selection);
+      if (!face) return;
+      var localNames = [face.postscriptName];
+      if (face.fullName && face.fullName !== face.postscriptName) localNames.push(face.fullName);
+      var source = localNames.map(function localSource(name) {
+        return "local(" + JSON.stringify(name) + ")";
+      }).join(", ");
+      var loading;
+      try {
+        loading = new FontFace(selectedFontAlias(selection, kind === "code"), source).load();
+      } catch (_) {
+        return;
+      }
+      loading.then(function activateLoadedFace(loaded) {
+        // 异步加载完成前可能已切换字体；过期结果不能重新覆盖新选择。
+        if (revision !== fontFaceLoadRevision[kind]) return;
+        document.fonts.add(loaded);
+        loadedFontFaces[kind] = loaded;
+      }).catch(function ignoreUnavailableLocalFace() {
+        // CSS 字体栈会自然落到保存的家族名和系统字体，无需额外错误状态。
       });
-      ensureFontFaceStyle().textContent = rules.join("");
     }
 
-    /** 保存最新字体目录并重新绑定当前选择，不为未选中的字体创建任何 CSS 规则。 */
+    /** 重新加载当前两项精确 face；只维护当前选择，不建立字体缓存。 */
+    function reloadSelectedFontFaces(settings) {
+      loadSelectedFontFace("ui", selectionFromSettings(settings, "ui"));
+      loadSelectedFontFace("code", selectionFromSettings(settings, "code"));
+    }
+
+    /** 保存最新字体目录并重新加载当前选择，以便同时使用 PostScript 名和完整字体名。 */
     function updateAvailableFontFamilies(families) {
       if (!Array.isArray(families)) return;
       availableFontFamilies = families;
-      if (activeFontSettings) rebuildSelectedFontFaces(activeFontSettings);
+      if (activeFontSettings) reloadSelectedFontFaces(activeFontSettings);
     }
 
     /** 将持久化配置映射到 Harness 官方字体变量；系统默认会完整移除插件覆盖。 */
@@ -266,25 +288,17 @@ window.__ModuleLoader__.load({
         postscriptName: normalized.codePostscriptName,
         weight: normalized.codeWeight,
       };
-      rebuildSelectedFontFaces(normalized);
+      reloadSelectedFontFaces(normalized);
 
       if (ui.family === "system") {
         root.style.removeProperty("--dsw-font-family");
-        root.style.removeProperty("--dsh-desktop-ui-font-weight");
-        root.removeAttribute("data-dsh-desktop-ui-font");
       } else {
         root.style.setProperty("--dsw-font-family", virtualFontStack(ui, false));
-        root.style.setProperty("--dsh-desktop-ui-font-weight", String(ui.weight));
-        root.setAttribute("data-dsh-desktop-ui-font", "");
       }
       if (code.family === "system") {
         root.style.removeProperty("--ds-font-family-code");
-        root.style.removeProperty("--dsh-desktop-code-font-weight");
-        root.removeAttribute("data-dsh-desktop-code-font");
       } else {
         root.style.setProperty("--ds-font-family-code", virtualFontStack(code, true));
-        root.style.setProperty("--dsh-desktop-code-font-weight", String(code.weight));
-        root.setAttribute("data-dsh-desktop-code-font", "");
       }
     }
 

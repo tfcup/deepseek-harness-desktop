@@ -114,6 +114,27 @@ async function main(): Promise<void> {
   const styleElements: Array<{ dataset: Record<string, string>; textContent: string }> = [];
   const rootAttributes = new Set<string>();
   const settingsWrites: Array<{ field: string; value: unknown }> = [];
+  const constructedFontFaces: Array<{ family: string; source: string }> = [];
+  const activeFontFaces = new Set<StubFontFace>();
+
+  /** 模拟浏览器 FontFace API，并记录插件实际加载的本机 face。 */
+  class StubFontFace {
+    family: string;
+    source: string;
+
+    constructor(family: string, source: string) {
+      this.family = family;
+      this.source = source;
+      constructedFontFaces.push({ family, source });
+    }
+
+    /** 本机字体测试无需真实排版，直接返回已加载实例。 */
+    load(): Promise<StubFontFace> {
+      return Promise.resolve(this);
+    }
+  }
+
+  (globalThis as unknown as Record<string, unknown>).FontFace = StubFontFace;
 
   const parentWindow = {
     postMessage: (message: unknown) => postMessages.push(message),
@@ -146,6 +167,10 @@ async function main(): Promise<void> {
       appendChild: (element: { dataset: Record<string, string>; textContent: string }) => {
         styleElements.push(element);
       },
+    },
+    fonts: {
+      add: (fontFace: StubFontFace) => activeFontFaces.add(fontFace),
+      delete: (fontFace: StubFontFace) => activeFontFaces.delete(fontFace),
     },
   };
 
@@ -206,6 +231,9 @@ async function main(): Promise<void> {
     fail(`Cordis Service 注入声明异常: ${JSON.stringify(moduleExports.inject)}`);
   }
   moduleExports.apply(context);
+  // FontFace.load() 是异步接口；等待保存的 UI/代码 face 加入 document.fonts。
+  await Promise.resolve();
+  await Promise.resolve();
   if (registrations.length !== 2) fail(`slots.register 调用次数异常: ${registrations.length}`);
   const fontRow = registrations.find((item) => item.id === "desktop-fonts");
   const updateRow = registrations.find((item) => item.id === "desktop-app-update");
@@ -215,20 +243,21 @@ async function main(): Promise<void> {
   }
 
   console.log("[2] 持久化字体在设置页打开前应用到 Harness 官方变量…");
-  if (!styleValues.get("--dsw-font-family")?.includes("DSH Desktop UI")) {
+  if (!styleValues.get("--dsw-font-family")?.includes("DSH Desktop selected UI PingFangSC-Medium")) {
     fail("UI 虚拟字体家族没有应用到 --dsw-font-family");
   }
-  if (!styleValues.get("--ds-font-family-code")?.includes("DSH Desktop Code")) {
+  if (!styleValues.get("--ds-font-family-code")?.includes("DSH Desktop selected Code JetBrainsMono-Regular")) {
     fail("编程虚拟字体家族没有应用到 --ds-font-family-code");
   }
-  const selectedFaceStyle = styleElements.find((element) =>
-    element.dataset.pluginCss === "dsh-ui/desktop-font-faces");
-  if (!selectedFaceStyle?.textContent.includes("PingFangSC-Medium") ||
-      !selectedFaceStyle.textContent.includes("JetBrainsMono-Regular")) {
+  if (!constructedFontFaces.some((face) => face.source.includes("PingFangSC-Medium")) ||
+      !constructedFontFaces.some((face) => face.source.includes("JetBrainsMono-Regular"))) {
     fail("字体目录返回前没有用已保存 face 建立虚拟字体家族");
   }
-  if (!rootAttributes.has("data-dsh-desktop-ui-font") || !rootAttributes.has("data-dsh-desktop-code-font")) {
-    fail("字体覆盖状态标记缺失");
+  const pluginStyle = styleElements.find((element) =>
+    element.dataset.pluginCss === "dsh-ui/desktop-update");
+  if (pluginStyle?.textContent.includes("--dsh-desktop-ui-font-weight") ||
+      pluginStyle?.textContent.includes("--dsh-desktop-code-font-weight")) {
+    fail("具体 face 模式不应再全局覆盖组件语义字重");
   }
   const fontSlot = fontRow.component({ t: (key: string) => key }) as StubElement;
   if (typeof fontSlot.type !== "function") fail("字体设置 slot 未渲染 React 组件");
@@ -260,15 +289,16 @@ async function main(): Promise<void> {
       data: { type: "dsh-desktop:font-state-v1", desktop: true, phase: "ready", families },
     });
   }
-  const selectedFaceCss = selectedFaceStyle.textContent;
-  for (const postscriptName of ["PingFangSC-Regular", "PingFangSC-Medium", "PingFangSC-MediumItalic"]) {
-    if (!selectedFaceCss.includes(postscriptName)) {
-      fail(`UI 虚拟字体家族缺少真实 face: ${postscriptName}`);
-    }
+  await Promise.resolve();
+  await Promise.resolve();
+  const uiFontFaces = constructedFontFaces.filter((face) => face.family.startsWith("DSH Desktop selected UI "));
+  if (!uiFontFaces.some((face) =>
+    face.family.endsWith("PingFangSC-Medium") && face.source.includes("PingFang SC Medium"))) {
+    fail("字体目录就绪后没有按 PostScript 名和完整名称加载所选 UI face");
   }
-  if (!selectedFaceCss.includes('font-family:"DSH Desktop UI"') ||
-      !selectedFaceCss.includes("font-style:italic")) {
-    fail("UI 虚拟字体家族没有保留独立字重和样式");
+  if (uiFontFaces.some((face) =>
+    face.source.includes("PingFangSC-Regular") || face.source.includes("PingFangSC-MediumItalic"))) {
+    fail("UI 虚拟字体不应加载同家族中未选中的 face");
   }
   const uiControls = findElement(fontTree, (element) =>
     typeof element.type === "function" && element.props.kind === "ui");
@@ -315,12 +345,14 @@ async function main(): Promise<void> {
     .find((option) => visibleText(option) === "systemDefault");
   if (!systemOption) fail("字体家族菜单缺少系统默认选项");
   (systemOption.props.onClick as () => void)();
+  await Promise.resolve();
+  await Promise.resolve();
   if (styleValues.has("--dsw-font-family") || !styleValues.has("--ds-font-family-code")) {
     fail("恢复 UI 系统默认时不应清除独立的编程字体覆盖");
   }
-  if (selectedFaceStyle.textContent.includes('font-family:"DSH Desktop UI"') ||
-      !selectedFaceStyle.textContent.includes('font-family:"DSH Desktop Code"')) {
-    fail("恢复 UI 系统默认时只应移除 UI 虚拟字体家族");
+  if ([...activeFontFaces].some((face) => face.family.startsWith("DSH Desktop selected UI ")) ||
+      ![...activeFontFaces].some((face) => face.family.startsWith("DSH Desktop selected Code "))) {
+    fail("恢复 UI 系统默认时只应卸载 UI 虚拟字体");
   }
 
   console.log("[3] 更新行通过版本化 postMessage 发出检查/安装请求…");
