@@ -47,6 +47,8 @@ window.__ModuleLoader__.load({
       fontTitle: "字体",
       uiFont: "界面字体",
       codeFont: "编程字体",
+      uiFontSize: "界面字号",
+      codeFontSize: "编程字号",
       systemDefault: "系统默认",
       searchFonts: "搜索字体",
       refreshFonts: "重新扫描本机字体",
@@ -72,6 +74,8 @@ window.__ModuleLoader__.load({
       fontTitle: "Fonts",
       uiFont: "Interface Font",
       codeFont: "Code Font",
+      uiFontSize: "Interface Size",
+      codeFontSize: "Code Size",
       systemDefault: "System Default",
       searchFonts: "Search fonts",
       refreshFonts: "Rescan local fonts",
@@ -90,24 +94,29 @@ window.__ModuleLoader__.load({
       tag.textContent = [
         ".dsh-desktop-update{display:flex;flex-direction:column;gap:10px;padding:16px 0;border-bottom:1px solid var(--dsw-alias-border-l2)}",
         ".dsh-desktop-update__head{display:flex;align-items:center;justify-content:space-between;gap:16px}",
-        ".dsh-desktop-update__title{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:400;line-height:22px}",
-        ".dsh-desktop-update__meta{display:grid;grid-template-columns:minmax(100px,auto) minmax(0,1fr);gap:4px 16px;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:20px}",
+        ".dsh-desktop-update__title{color:var(--dsw-alias-label-primary);font-size:var(--dsw-font-s-14-font-size,14px);font-weight:400;line-height:var(--dsw-font-s-14-line-height,22px)}",
+        ".dsh-desktop-update__meta{display:grid;grid-template-columns:minmax(100px,auto) minmax(0,1fr);gap:4px 16px;color:var(--dsw-alias-label-secondary);font-size:var(--dsw-font-xs-13-font-size,13px);line-height:var(--dsw-font-xs-13-line-height,20px)}",
         ".dsh-desktop-update__value{color:var(--dsw-alias-label-primary);overflow-wrap:anywhere}",
-        ".dsh-desktop-update__status{color:var(--dsw-alias-label-secondary);font-size:13px;line-height:20px}",
+        ".dsh-desktop-update__status{color:var(--dsw-alias-label-secondary);font-size:var(--dsw-font-xs-13-font-size,13px);line-height:var(--dsw-font-xs-13-line-height,20px)}",
         ".dsh-desktop-update__error{color:var(--dsw-alias-label-danger,#d64045)}",
-        ".dsh-desktop-update__notes{max-height:88px;overflow:auto;white-space:pre-wrap;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}",
+        ".dsh-desktop-update__notes{max-height:88px;overflow:auto;white-space:pre-wrap;color:var(--dsw-alias-label-secondary);font-size:var(--dsw-font-xxs-12-font-size,12px);line-height:var(--dsw-font-xxs-12-line-height,18px)}",
         ".dsh-desktop-update__progress{height:4px;overflow:hidden;border-radius:2px;background:var(--dsw-alias-bg-module-platform)}",
         ".dsh-desktop-update__bar{height:100%;background:var(--dsw-alias-interactive-primary);transition:width .18s ease}",
-        ".dsh-desktop-update__button{display:inline-flex;min-height:32px;align-items:center;justify-content:center;gap:6px;padding:5px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;line-height:20px;cursor:pointer}",
+        ".dsh-desktop-update__button{display:inline-flex;min-height:32px;align-items:center;justify-content:center;gap:6px;padding:5px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:var(--dsw-font-xs-13-font-size,13px);line-height:var(--dsw-font-xs-13-line-height,20px);cursor:pointer}",
         ".dsh-desktop-update__button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}",
         ".dsh-desktop-update__button:disabled{cursor:not-allowed;opacity:.55}",
         ".dsh-desktop-fonts{display:flex;flex-direction:column;gap:14px;padding:16px 0;border-bottom:1px solid var(--dsw-alias-border-l2)}",
-        ".dsh-desktop-fonts__title{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:400;line-height:22px}",
+        ".dsh-desktop-fonts__title{color:var(--dsw-alias-label-primary);font-size:var(--dsw-font-s-14-font-size,14px);font-weight:400;line-height:var(--dsw-font-s-14-line-height,22px)}",
         ".dsh-desktop-fonts__row{display:grid;grid-template-columns:minmax(100px,1fr) minmax(0,2.3fr);align-items:center;gap:16px}",
-        ".dsh-desktop-fonts__label{color:var(--dsw-alias-label-secondary);font-size:13px;line-height:20px}",
+        ".dsh-desktop-fonts__label{color:var(--dsw-alias-label-secondary);font-size:var(--dsw-font-xs-13-font-size,13px);line-height:var(--dsw-font-xs-13-line-height,20px)}",
         ".dsh-desktop-fonts__controls{display:grid;grid-template-columns:minmax(150px,1fr) minmax(116px,.48fr);gap:8px;min-width:0}",
+        ".dsh-desktop-fonts__size-controls{display:flex;justify-content:flex-end}",
+        ".dsh-font-size-input{display:flex;width:116px;height:36px;align-items:center;border:1px solid transparent;border-radius:18px;background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-primary);overflow:hidden}",
+        ".dsh-font-size-input:focus-within{border-color:var(--dsw-alias-state-business-primary)}",
+        ".dsh-font-size-input input{box-sizing:border-box;min-width:0;height:100%;flex:1;border:0;background:transparent;color:inherit;font:inherit;font-size:var(--dsw-font-s-14-font-size,14px);line-height:var(--dsw-font-s-14-line-height,22px);padding:0 4px 0 13px;outline:none}",
+        ".dsh-font-size-input__unit{flex:none;padding-right:13px;color:var(--dsw-alias-label-secondary);font-size:var(--dsw-font-xs-13-font-size,13px)}",
         ".dsh-font-picker{position:relative;min-width:0}",
-        ".dsh-font-picker__trigger,.dsh-font-picker__weight{box-sizing:border-box;width:100%;height:36px;border:1px solid transparent;border-radius:18px;background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-primary);font:inherit;font-size:14px;line-height:22px;cursor:pointer}",
+        ".dsh-font-picker__trigger,.dsh-font-picker__weight{box-sizing:border-box;width:100%;height:36px;border:1px solid transparent;border-radius:18px;background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-primary);font:inherit;font-size:var(--dsw-font-s-14-font-size,14px);line-height:var(--dsw-font-s-14-line-height,22px);cursor:pointer}",
         ".dsh-font-picker__trigger{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 13px;text-align:left}",
         ".dsh-font-picker__trigger:hover,.dsh-font-picker__weight:hover{background:var(--dsw-alias-interactive-bg-hover)}",
         ".dsh-font-picker__trigger:disabled,.dsh-font-picker__weight:disabled{cursor:not-allowed;opacity:.55}",
@@ -116,15 +125,15 @@ window.__ModuleLoader__.load({
         ".dsh-font-picker__weight{appearance:none;padding:0 30px 0 13px;background-image:linear-gradient(45deg,transparent 50%,currentColor 50%),linear-gradient(135deg,currentColor 50%,transparent 50%);background-position:calc(100% - 16px) 15px,calc(100% - 11px) 15px;background-size:5px 5px;background-repeat:no-repeat}",
         ".dsh-font-picker__menu{position:absolute;z-index:80;top:calc(100% + 6px);left:0;width:max(100%,260px);overflow:hidden;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-specific-menu,var(--dsw-alias-bg-layer-1));box-shadow:var(--dsw-shadow-lv3);padding:6px}",
         ".dsh-font-picker__search-row{display:flex;align-items:center;gap:6px;padding-bottom:6px}",
-        ".dsh-font-picker__search{box-sizing:border-box;min-width:0;height:32px;flex:1;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;padding:0 9px;outline:none}",
+        ".dsh-font-picker__search{box-sizing:border-box;min-width:0;height:32px;flex:1;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:var(--dsw-font-xs-13-font-size,13px);padding:0 9px;outline:none}",
         ".dsh-font-picker__search:focus{border-color:var(--dsw-alias-state-business-primary)}",
         ".dsh-font-picker__refresh{width:32px;height:32px;flex:none;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font-size:17px;cursor:pointer}",
         ".dsh-font-picker__refresh:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}",
         ".dsh-font-picker__list{max-height:260px;overflow-y:auto}",
-        ".dsh-font-picker__option{display:flex;width:100%;min-height:34px;align-items:center;justify-content:space-between;gap:8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);padding:6px 8px;text-align:left;font-size:13px;cursor:pointer}",
+        ".dsh-font-picker__option{display:flex;width:100%;min-height:34px;align-items:center;justify-content:space-between;gap:8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);padding:6px 8px;text-align:left;font-size:var(--dsw-font-xs-13-font-size,13px);cursor:pointer}",
         ".dsh-font-picker__option:hover,.dsh-font-picker__option[aria-selected='true']{background:var(--dsw-alias-interactive-bg-hover)}",
-        ".dsh-font-picker__badge{flex:none;border-radius:4px;background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-tertiary);padding:1px 5px;font-size:10px;line-height:16px}",
-        ".dsh-font-picker__empty,.dsh-desktop-fonts__status{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}",
+        ".dsh-font-picker__badge{flex:none;border-radius:4px;background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-tertiary);padding:1px 5px;font-size:var(--dsh-desktop-font-badge-size,10px);line-height:var(--dsh-desktop-font-badge-line-height,16px)}",
+        ".dsh-font-picker__empty,.dsh-desktop-fonts__status{color:var(--dsw-alias-label-tertiary);font-size:var(--dsw-font-xxs-12-font-size,12px);line-height:var(--dsw-font-xxs-12-line-height,18px)}",
         ".dsh-font-picker__empty{padding:10px 8px}",
         ".dsh-desktop-fonts__warning{color:var(--dsw-alias-state-warn-primary)}",
         "@media(max-width:720px){.dsh-desktop-fonts__row{grid-template-columns:1fr}.dsh-desktop-fonts__controls{grid-template-columns:minmax(0,1fr) minmax(108px,.48fr)}}",
@@ -160,13 +169,20 @@ window.__ModuleLoader__.load({
         var candidate = Number(source[field]);
         return Number.isFinite(candidate) ? Math.max(1, Math.min(1000, Math.round(candidate))) : 400;
       }
+      // 字号不设产品上的大小范围，仅拒绝 CSS 无法使用的非正数或非有限值。
+      function size(field, fallback) {
+        var candidate = Number(source[field]);
+        return Number.isFinite(candidate) && candidate > 0 ? candidate : fallback;
+      }
       return {
         uiFamily: text("uiFamily", "system"),
         uiPostscriptName: text("uiPostscriptName", ""),
         uiWeight: weight("uiWeight"),
+        uiSize: size("uiSize", 16),
         codeFamily: text("codeFamily", "system"),
         codePostscriptName: text("codePostscriptName", ""),
         codeWeight: weight("codeWeight"),
+        codeSize: size("codeSize", 13),
       };
     }
 
@@ -272,7 +288,83 @@ window.__ModuleLoader__.load({
       if (activeFontSettings) reloadSelectedFontFaces(activeFontSettings);
     }
 
-    /** 将持久化配置映射到 Harness 官方字体变量；系统默认会完整移除插件覆盖。 */
+    /**
+     * 将用户字号映射到 Harness 官方语义 token。同时覆盖 shorthand 和拆分字段，
+     * 是因为不同官方组件会读取两种形态；不使用 DOM 选择器则可避免绑定上游压缩类名。
+     */
+    function applyFontSizeTokens(root, uiSize, codeSize) {
+      /** 层级差值可能在用户输入极小字号时得到非正数，只对派生值做 CSS 有效性保护。 */
+      function derivedSize(base, offset) {
+        return Math.max(1, base + offset);
+      }
+
+      /** 写入一个 UI 语义 token，保留它原有的字重和斜体层级。 */
+      function setUiToken(name, size, lineHeight, weight, style) {
+        var prefix = "--dsw-font-" + name;
+        var shorthand = (style === "italic" ? "italic " : "") +
+          (weight === 400 ? "" : weight + " ") +
+          size + "px/" + lineHeight + "px var(--dsw-font-family)";
+        root.style.setProperty(prefix, shorthand);
+        root.style.setProperty(prefix + "-font-size", size + "px");
+        root.style.setProperty(prefix + "-line-height", lineHeight + "px");
+      }
+
+      /** 写入一个编程语义 token，代码区域始终使用独立的编程字体家族。 */
+      function setCodeToken(name, size, lineHeight) {
+        var prefix = "--dsw-font-" + name;
+        root.style.setProperty(prefix, size + "px/" + lineHeight + "px var(--ds-font-family-code)");
+        root.style.setProperty(prefix + "-font-size", size + "px");
+        root.style.setProperty(prefix + "-line-height", lineHeight + "px");
+      }
+
+      var uiTokens = [
+        ["markdown-h1", 8, 10, 700, "normal"],
+        ["markdown-h2", 6, 10, 700, "normal"],
+        ["markdown-h3", 4, 10, 700, "normal"],
+        ["markdown-h4", 0, 12, 600, "normal"],
+        ["markdown-base", 0, 12, 400, "normal"],
+        ["markdown-base-strong", 0, 12, 600, "normal"],
+        ["markdown-base-italic", 0, 12, 400, "italic"],
+        ["markdown-base-strong-italic", 0, 12, 600, "italic"],
+        ["markdown-table", -1, 10, 400, "normal"],
+        ["markdown-table-head", -1, 10, 500, "normal"],
+        ["markdown-small", -2, 10, 400, "normal"],
+        ["markdown-small-strong", -2, 10, 600, "normal"],
+        ["markdown-small-italic", -2, 10, 400, "italic"],
+        ["markdown-small-strong-italic", -2, 10, 600, "italic"],
+        ["xl-24", 8, 8, 600, "normal"],
+        ["l-20", 4, 8, 500, "normal"],
+        ["m-18", 0, 12, 500, "normal"],
+        ["base-16", 0, 8, 400, "normal"],
+        ["base-strong-16", 0, 8, 500, "normal"],
+        ["s-14", -2, 8, 400, "normal"],
+        ["s-strong-14", -2, 8, 500, "normal"],
+        ["xs-13", -3, 7, 400, "normal"],
+        ["xs-strong-13", -3, 7, 500, "normal"],
+        ["xxs-12", -4, 6, 400, "normal"],
+        ["xxs-strong-12", -4, 6, 500, "normal"],
+        ["xxxs-11", -5, 3, 400, "normal"],
+        ["xxxs-strong-11", -5, 3, 500, "normal"],
+      ];
+      uiTokens.forEach(function applyUiToken(token) {
+        var size = derivedSize(uiSize, token[1]);
+        setUiToken(token[0], size, derivedSize(size, token[2]), token[3], token[4]);
+      });
+
+      var inlineCodeSize = derivedSize(codeSize, 1);
+      var blockCodeSize = derivedSize(codeSize, 0);
+      var smallCodeSize = derivedSize(codeSize, -1);
+      setCodeToken("markdown-code", inlineCodeSize, derivedSize(codeSize, 9));
+      setCodeToken("markdown-code-block", blockCodeSize, derivedSize(codeSize, 9));
+      setCodeToken("markdown-code-block-small", smallCodeSize, derivedSize(codeSize, 5));
+
+      // 徽标没有对应的官方 token，仅供桌面扩展自身的“等宽”标识跟随界面字号。
+      var badgeSize = derivedSize(uiSize, -6);
+      root.style.setProperty("--dsh-desktop-font-badge-size", badgeSize + "px");
+      root.style.setProperty("--dsh-desktop-font-badge-line-height", derivedSize(badgeSize, 6) + "px");
+    }
+
+    /** 将持久化配置映射到 Harness 官方字体和字号变量。 */
     function applyFontSettings(settings) {
       var root = document.documentElement;
       if (!root || !root.style) return;
@@ -300,6 +392,9 @@ window.__ModuleLoader__.load({
       } else {
         root.style.setProperty("--ds-font-family-code", virtualFontStack(code, true));
       }
+      // 官方排版 token 定义在 body 上；写到同一元素的 inline style 才不会被 body 自身声明覆盖。
+      var typographyRoot = document.body && document.body.style ? document.body : root;
+      applyFontSizeTokens(typographyRoot, normalized.uiSize, normalized.codeSize);
     }
 
     /** 读取 UI 或代码字体选择，避免两组控件交叉覆盖。 */
@@ -471,7 +566,49 @@ window.__ModuleLoader__.load({
           : React.createElement("option", { value: "" }, props.t("systemDefault"))));
     }
 
-    /** Harness 常规设置中的两组字体选择器。 */
+    /** Codex 风格的字号输入：Enter 或失焦提交，非正数恢复上一个有效值。 */
+    function FontSizeInput(props) {
+      var inputTuple = React.useState(String(props.value));
+      var inputValue = inputTuple[0];
+      var setInputValue = inputTuple[1];
+
+      React.useEffect(function syncExternalFontSize() {
+        setInputValue(String(props.value));
+      }, [props.value]);
+
+      /** 不限制产品范围，但不将 NaN、无穷值或非正数写入 CSS 与用户配置。 */
+      function commitInput() {
+        var candidate = Number(inputValue);
+        if (!Number.isFinite(candidate) || candidate <= 0) {
+          setInputValue(String(props.value));
+          return;
+        }
+        setInputValue(String(candidate));
+        if (candidate !== props.value) props.onCommit(candidate);
+      }
+
+      return React.createElement("div", { className: "dsh-font-size-input" },
+        React.createElement("input", {
+          type: "number",
+          step: "any",
+          value: inputValue,
+          disabled: props.disabled,
+          "aria-label": props.label,
+          onChange: function updateInput(event) { setInputValue(event.target.value); },
+          onBlur: commitInput,
+          onKeyDown: function handleInputKey(event) {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              commitInput();
+            } else if (event.key === "Escape") {
+              setInputValue(String(props.value));
+            }
+          },
+        }),
+        React.createElement("span", { className: "dsh-font-size-input__unit", "aria-hidden": true }, "px"));
+    }
+
+    /** Harness 常规设置中的 UI/编程字体、字重与字号设置。 */
     function DesktopFontRow(props) {
       var t = typeof props.t === "function" ? props.t : fallbackTranslate;
       var snapshotTuple = React.useState(props.scope.getSnapshot());
@@ -512,12 +649,23 @@ window.__ModuleLoader__.load({
       }, []);
 
       var settings = draft || normalizeFontSettings(snapshot.value);
-      var disabled = snapshot.status !== "ready" || snapshot.writable !== true || catalog.phase === "loading";
+      var settingsDisabled = snapshot.status !== "ready" || snapshot.writable !== true;
+      var fontPickerDisabled = settingsDisabled || catalog.phase === "loading";
+      /** 更新一组字体 face，并在 settings provider 确认前先即时预览。 */
       function select(kind, selection) {
         var next = withSelection(settings, kind, selection);
         setDraft(next);
         applyFontSettings(next);
         persistSelection(props.scope, kind, selection);
+      }
+      /** UI 与编程字号分字段写入，避免改动另一组字体配置。 */
+      function selectSize(kind, value) {
+        var field = kind === "code" ? "codeSize" : "uiSize";
+        var next = Object.assign({}, settings);
+        next[field] = value;
+        setDraft(next);
+        applyFontSettings(next);
+        props.scope.set(field, value);
       }
       var uiSelection = selectionFromSettings(settings, "ui");
       var codeSelection = selectionFromSettings(settings, "code");
@@ -537,15 +685,33 @@ window.__ModuleLoader__.load({
         React.createElement("div", { className: "dsh-desktop-fonts__row" },
           React.createElement("div", { className: "dsh-desktop-fonts__label" }, t("uiFont")),
           React.createElement(FontSelectionControls, {
-            kind: "ui", t: t, families: catalog.families, selection: uiSelection, disabled: disabled,
+            kind: "ui", t: t, families: catalog.families, selection: uiSelection, disabled: fontPickerDisabled,
             onSelect: function selectUi(selection) { select("ui", selection); },
           })),
         React.createElement("div", { className: "dsh-desktop-fonts__row" },
+          React.createElement("div", { className: "dsh-desktop-fonts__label" }, t("uiFontSize")),
+          React.createElement("div", { className: "dsh-desktop-fonts__size-controls" },
+            React.createElement(FontSizeInput, {
+              value: settings.uiSize,
+              label: t("uiFontSize"),
+              disabled: settingsDisabled,
+              onCommit: function selectUiSize(value) { selectSize("ui", value); },
+            }))),
+        React.createElement("div", { className: "dsh-desktop-fonts__row" },
           React.createElement("div", { className: "dsh-desktop-fonts__label" }, t("codeFont")),
           React.createElement(FontSelectionControls, {
-            kind: "code", t: t, families: catalog.families, selection: codeSelection, disabled: disabled,
+            kind: "code", t: t, families: catalog.families, selection: codeSelection, disabled: fontPickerDisabled,
             onSelect: function selectCode(selection) { select("code", selection); },
           })),
+        React.createElement("div", { className: "dsh-desktop-fonts__row" },
+          React.createElement("div", { className: "dsh-desktop-fonts__label" }, t("codeFontSize")),
+          React.createElement("div", { className: "dsh-desktop-fonts__size-controls" },
+            React.createElement(FontSizeInput, {
+              value: settings.codeSize,
+              label: t("codeFontSize"),
+              disabled: settingsDisabled,
+              onCommit: function selectCodeSize(value) { selectSize("code", value); },
+            }))),
         status ? React.createElement("div", {
           className: "dsh-desktop-fonts__status" + (missing || catalog.phase === "error" ? " dsh-desktop-fonts__warning" : ""),
           role: catalog.phase === "error" ? "alert" : "status",

@@ -5,8 +5,8 @@
 
 当前功能：
 
-- 向 `settings.general.item` 注入两组本机字体/实际字重选择器；
-- 通过官方 `settingsScope` 把 UI 与编程字体独立保存到 `desktop-fonts`；
+- 向 `settings.general.item` 注入两组本机字体/实际字重选择器和独立字号输入；
+- 通过官方 `settingsScope` 把 UI 与编程字体、字重和字号独立保存到 `desktop-fonts`；
 - 向 `settings.general.item` 注入“应用更新”设置行；
 - 通过版本化 `postMessage` 协议请求 Tauri 父窗口列举本机字体或执行 App 更新，浏览器页不直接获得原生权限。
 
@@ -28,11 +28,11 @@ lib/client.js    # 浏览器 bundle：__ModuleLoader__.load → apply(ctx)
 
 | 脚本 | 内容 | 结果 |
 |---|---|---|
-| `packages/harness-adapter/scripts/verify-ui-logic.ts` | 字体搜索、真实 face 联动、独立持久化/默认回退、slot 与消息协议 | ✅ |
+| `packages/harness-adapter/scripts/verify-ui-logic.ts` | 字体搜索、真实 face 联动、字号 token、独立持久化/默认回退、slot 与消息协议 | ✅ |
 | `packages/harness-adapter/scripts/verify-client-plugin.ts` | 真实 dsh E2E：引导图含 dsh-ui 条目、client.js 服务 | ✅ |
 
 ## 状态
 
 - [x] Harness 自带设置中的 App 更新入口（`settings.general.item`）
-- [x] 本机 UI/编程字体和实际字重选择器（`desktop-fonts`）
+- [x] 本机 UI/编程字体、实际字重和独立字号设置（`desktop-fonts`）
 - [x] 外壳侧安全消息桥（校验 iframe window + service origin）

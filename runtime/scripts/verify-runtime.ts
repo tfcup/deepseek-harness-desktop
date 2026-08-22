@@ -75,7 +75,13 @@ async function main(): Promise<void> {
   if (!existsSync(extRoot)) fail(`Extension Pack 缺失: ${extRoot}`);
   if (!existsSync(officialThemeClient)) fail(`Harness 官方主题客户端缺失: ${officialThemeClient}`);
   const officialThemeSource = readFileSync(officialThemeClient, "utf8");
-  for (const variable of ["--dsw-font-family", "--ds-font-family-code"]) {
+  // 字体与字号都依赖官方语义 token；上游删除时应阻止发布一个设置已失效的 Desktop。
+  for (const variable of [
+    "--dsw-font-family",
+    "--ds-font-family-code",
+    "--dsw-font-markdown-base-font-size",
+    "--dsw-font-markdown-code-block-font-size",
+  ]) {
     if (!officialThemeSource.includes(variable)) {
       fail(`Harness 官方主题不再提供字体变量 ${variable}`);
     }

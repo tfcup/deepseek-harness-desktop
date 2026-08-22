@@ -8,9 +8,11 @@ const FontSettingsSchema = z.object({
   uiFamily: z.string().default("system"),
   uiPostscriptName: z.string().default(""),
   uiWeight: z.number().default(400),
+  uiSize: z.number().default(16),
   codeFamily: z.string().default("system"),
   codePostscriptName: z.string().default(""),
   codeWeight: z.number().default(400),
+  codeSize: z.number().default(13),
 });
 
 export const name = "dsh-ui";

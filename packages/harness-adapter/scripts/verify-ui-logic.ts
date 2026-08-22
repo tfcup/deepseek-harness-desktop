@@ -161,6 +161,13 @@ async function main(): Promise<void> {
       setAttribute: (name: string) => rootAttributes.add(name),
       removeAttribute: (name: string) => rootAttributes.delete(name),
     },
+    // Harness 官方排版 token 挂在 body，测试也必须保留这个级联层级。
+    body: {
+      style: {
+        setProperty: (name: string, value: string) => styleValues.set(name, value),
+        removeProperty: (name: string) => styleValues.delete(name),
+      },
+    },
     querySelector: () => null,
     createElement: () => ({ dataset: {}, textContent: "" }),
     head: {
@@ -212,9 +219,11 @@ async function main(): Promise<void> {
             uiFamily: "PingFang SC",
             uiPostscriptName: "PingFangSC-Medium",
             uiWeight: 500,
+            uiSize: 18,
             codeFamily: "JetBrains Mono",
             codePostscriptName: "JetBrainsMono-Regular",
             codeWeight: 400,
+            codeSize: 15,
           },
         }),
         subscribe: () => () => undefined,
@@ -248,6 +257,14 @@ async function main(): Promise<void> {
   }
   if (!styleValues.get("--ds-font-family-code")?.includes("DSH Desktop selected Code JetBrainsMono-Regular")) {
     fail("编程虚拟字体家族没有应用到 --ds-font-family-code");
+  }
+  if (styleValues.get("--dsw-font-markdown-base-font-size") !== "18px" ||
+      styleValues.get("--dsw-font-markdown-base") !== "18px/30px var(--dsw-font-family)") {
+    fail("界面字号没有同时应用到 Markdown 正文的拆分和 shorthand token");
+  }
+  if (styleValues.get("--dsw-font-markdown-code-block-font-size") !== "15px" ||
+      styleValues.get("--dsw-font-markdown-code-font-size") !== "16px") {
+    fail("编程字号没有保持代码块与行内代码的现有层级");
   }
   if (!constructedFontFaces.some((face) => face.source.includes("PingFangSC-Medium")) ||
       !constructedFontFaces.some((face) => face.source.includes("JetBrainsMono-Regular"))) {
@@ -341,6 +358,29 @@ async function main(): Promise<void> {
       settingsWrites.length !== 3) {
     fail("重新扫描字体应只发 refresh 请求，不能覆盖已保存选择");
   }
+
+  console.log("[3] UI/编程字号独立保存，且不设产品上限…");
+  const uiSizeControl = findElement(fontTree, (element) =>
+    typeof element.type === "function" && element.props.label === "uiFontSize");
+  if (!uiSizeControl || typeof uiSizeControl.type !== "function") fail("界面字号控件缺失");
+  react.forceStates(["37"]);
+  const uiSizeTree = (uiSizeControl.type as (props: Record<string, unknown>) => unknown)(uiSizeControl.props);
+  react.forceStates(null);
+  const uiSizeInput = findElement(uiSizeTree, (element) => element.type === "input");
+  (uiSizeInput?.props.onBlur as (() => void) | undefined)?.();
+  if (!settingsWrites.some((write) => write.field === "uiSize" && write.value === 37) ||
+      styleValues.get("--dsw-font-markdown-base-font-size") !== "37px" ||
+      styleValues.get("--dsw-font-markdown-code-block-font-size") !== "15px") {
+    fail("界面字号应允许超过预设范围，并且不影响独立的编程字号");
+  }
+  const writesAfterValidSize = settingsWrites.length;
+  react.forceStates(["-2"]);
+  const invalidSizeTree = (uiSizeControl.type as (props: Record<string, unknown>) => unknown)(uiSizeControl.props);
+  react.forceStates(null);
+  const invalidSizeInput = findElement(invalidSizeTree, (element) => element.type === "input");
+  (invalidSizeInput?.props.onBlur as (() => void) | undefined)?.();
+  if (settingsWrites.length !== writesAfterValidSize) fail("非正字号不应写入设置");
+
   const systemOption = findElements(fullMenuTree, (element) => element.props.role === "option")
     .find((option) => visibleText(option) === "systemDefault");
   if (!systemOption) fail("字体家族菜单缺少系统默认选项");
@@ -355,7 +395,7 @@ async function main(): Promise<void> {
     fail("恢复 UI 系统默认时只应卸载 UI 虚拟字体");
   }
 
-  console.log("[3] 更新行通过版本化 postMessage 发出检查/安装请求…");
+  console.log("[4] 更新行通过版本化 postMessage 发出检查/安装请求…");
   const row = updateRow.component({ t: (key: string) => key });
   const installButton = findElement(row, (element) => element.type === "button");
   if (!installButton) fail("更新行未渲染操作按钮");
@@ -368,7 +408,7 @@ async function main(): Promise<void> {
     fail("发现更新时按钮未请求 install");
   }
 
-  console.log("[4] 桌面父窗口握手前仍展示更新入口…");
+  console.log("[5] 桌面父窗口握手前仍展示更新入口…");
   const disconnectedReact = stubReact(false);
   const disconnectedExports = entry.factory((specifier) => {
     if (specifier === "react") return disconnectedReact;
@@ -385,8 +425,8 @@ async function main(): Promise<void> {
     fail("桌面 iframe 握手前更新行不应静默消失");
   }
 
-  if (settingsWrites.length !== 6 || settingsWrites.some((write) => write.field.startsWith("code"))) {
-    fail(`两次 UI 字体操作应只写入 UI 组字段: ${JSON.stringify(settingsWrites)}`);
+  if (settingsWrites.length !== 7 || settingsWrites.some((write) => write.field.startsWith("code"))) {
+    fail(`UI 字体和字号操作应只写入 UI 组字段: ${JSON.stringify(settingsWrites)}`);
   }
   console.log("\n✅ dsh-ui 字体/更新设置行、消息协议和持久化字体应用验证通过。");
 }
